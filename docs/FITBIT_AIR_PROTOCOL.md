@@ -184,3 +184,18 @@ the first error with the eventual success. Failures are labelled at
 `RUNTIME_INIT`, `GATT_PREPARE`, `Gattlink/DTLS`, or `HAPTIC`. The known-device
 import settle window is also increased from 500 ms to 1500 ms. Those results
 distinguish a local client-initialization race from a DTLS ownership transition.
+
+### v10020 device result
+
+The first attempt reported `systemGatt=true`, `localGatt=true`,
+`source=SYSTEM_IMPORT`, and then timed out after 18 seconds at
+`Gattlink/DTLS`. The second attempt succeeded after a two-second retry delay and
+executed one verified haptic group. This rules out the known-device import wait
+as the primary cause and supports the single-session takeover interpretation.
+
+Afterward, the v10020 recovery action cleared and relaunched Google Health's
+Activity task, but a real sync still returned error 3000. UI lifecycle restart
+is therefore insufficient; the stale protocol state survives in Google
+Health's longer-lived background process. Privilege-assisted force-stop and
+manual ownership switching have both been rejected as product workflows. See
+`docs/OPEN_PROBLEMS.md` for the current blocker and exit criteria.

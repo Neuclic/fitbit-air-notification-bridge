@@ -38,7 +38,9 @@ com.whatsapp=long_gap
 - v10018 已确认第二个 GATT client 能加入并触发震动，但它不是透明共存方案。
 - v10018 实机结果为：震动成功，但仅释放 Bridge client 后 Google Health 同步报 3000；这排除了“两个 DTLS 会话可透明共存”。
 - v10019 的 Link Controller 请求在本地返回完成，但实机为 `systemGatt=true/true`、`sawDisconnect=false`；Google Health 仍需正常关闭界面后重新打开才能同步。因此普通无特权 APK 的自动交还路径已判定不可行。
-- v10020 只能释放 Bridge client，并提供一个可见、需用户点击的动作来清空并重新启动 Google Health 的 Activity task。它能否等效于本机的“正常关闭再打开”仍需实机确认；这不是静默后台修复接口。
+- v10020 清空并重新启动 Google Health Activity task 后，实机同步仍报错误 3000。旧会话因此不属于界面 task，而存在于寿命更长的后台进程状态中。
+- v10020 第一次尝试是在系统和本地 GATT 均已连接时，于 `Gattlink/DTLS` 阶段超时；第二次才成功。这符合协议会话被夺取的特征，不是本地蓝牙初始化慢。
+- 项目明确不接受 Shizuku/root/无障碍等提权强停重启方案，也不接受用户在 Bridge 与 Google Health 间人工切换所有权作为正式工作流。
 - 当前只构建 `arm64-v8a`。
 - pattern 是由已经验证的“切换强度—恢复强度”短震组组成，不是任意马达波形控制。
 - 本应用和 Google Health 不能同时主动占用 Fitbit Air；常规扫描/连接模式不能共存。
@@ -48,11 +50,11 @@ com.whatsapp=long_gap
 
 1. 安装应用并允许附近设备/蓝牙权限。
 2. 保持 Google Health 正常运行，并确认它已经连接 Air。
-3. 点击“测试 SINGLE（记录首次失败详情）”。v10020 不会先扫描 Air。
-4. 记录结果是“首次成功”，还是保留了 `RUNTIME_INIT`、`GATT_PREPARE`、`Gattlink/DTLS` 或 `HAPTIC` 阶段的前序错误。
-5. Air 震动后，在应用或恢复通知中点击“重开 Google Health 恢复同步”，再到 Google Health 执行一次真实手动同步。
-6. 只有手动同步完成且不再出现错误 3000，才算恢复动作成功。
-7. DNCS 页面只保留用于复现已经确认的负面结果。
+3. v10020 只应作为诊断复现版本；它的 Google Health 重启动作已经被实机证伪。
+4. 不要在日常使用中启用通知规则：Bridge 震动成功后可能导致 Google Health 持续报错误 3000。
+5. DNCS 页面只保留用于复现已经确认的负面结果。
+
+完整阻塞问题、实机证据、明确放弃的绕行方案和验收条件见 [未解决问题](docs/OPEN_PROBLEMS.zh-CN.md)。
 
 ## 隐私和安全
 
@@ -63,8 +65,8 @@ com.whatsapp=long_gap
 
 ## 路线图
 
-1. 实机验证 v10020 的 Activity task 重启是否足以让 Google Health 重建 Gattlink/DTLS 会话并恢复同步。
-2. 根据 v10020 保留的第一次失败阶段和异常，判断 2 秒重试来自本地 GATT 初始化竞态还是 DTLS 所有权切换。
+1. 寻找无需特权、不会夺取或破坏 Google Health 活跃会话的协议震动入口。
+2. 不把 Shizuku/root/无障碍强停自动化或人工所有权切换作为产品方案继续推进。
 3. 把包名文本配置改成 3–5 个应用的可视化选择器。
 4. 增加 pattern 编辑器、冷却时间和安全预览。
 5. 增加可复现的 GitHub Actions 构建与签名 Release APK。

@@ -40,7 +40,9 @@ com.whatsapp=long_gap
 - v10018 confirmed that a second GATT client can join and execute a haptic, but it is not transparent coexistence.
 - v10018 executed the haptic, but releasing only the bridge client left Google Health sync failing with error 3000; transparent dual-DTLS coexistence is therefore rejected.
 - v10019's Link Controller request returned locally, but device testing observed `systemGatt=true/true` and `sawDisconnect=false`; Google Health still could not sync until its UI task was closed and reopened. Automatic handoff from a stock unprivileged APK is therefore rejected.
-- v10020 can only release the bridge client and offer a visible, user-authorized action that clears and relaunches Google Health's Activity task. Whether that lifecycle restart is sufficient must be verified on the device; it is not a silent background repair API.
+- v10020's Activity-task relaunch was also device-tested and Google Health still returned error 3000. The stale session therefore survives a UI task restart and belongs to longer-lived background process state.
+- The first v10020 attempt timed out specifically at `Gattlink/DTLS` while both system and local GATT were connected; the second attempt succeeded. This is consistent with protocol-session takeover, not a local Bluetooth initialization delay.
+- Privilege-assisted force-stop/relaunch (Shizuku/root/Accessibility) and manual Bridge/Health ownership switching are explicitly outside the accepted product design.
 - Only `arm64-v8a` is built at present.
 - A pattern is composed of verified **toggle/restore haptic groups**. It is not arbitrary motor waveform control.
 - Fitbit Air cannot be actively owned by this app and Google Health at the same time; the normal scan/connect transport cannot coexist.
@@ -50,11 +52,11 @@ com.whatsapp=long_gap
 
 1. Install the app and grant Nearby devices/Bluetooth access.
 2. Leave Google Health running and confirm that it has connected Air.
-3. Tap **test SINGLE (record first-failure details)**. v10020 does not scan first.
-4. Record whether the result says `first success` or retains a prior `RUNTIME_INIT`, `GATT_PREPARE`, `Gattlink/DTLS`, or `HAPTIC` error.
-5. After Air vibrates, tap **restart Google Health to restore sync** in the app or its recovery notification, then perform a real manual sync in Google Health.
-6. Count the recovery as successful only if that manual sync completes without error 3000.
-7. The DNCS page remains only as a reproducible negative-control probe.
+3. Use v10020 only as a diagnostic reproduction build. Its Health relaunch action has been disproved as a recovery mechanism.
+4. Do not enable notification rules for normal daily use: a successful bridge haptic can leave Google Health sync failing with error 3000.
+5. The DNCS page remains only as a reproducible negative-control probe.
+
+The full blocker, evidence, rejected workarounds, and acceptance criteria are recorded in [Open problems](docs/OPEN_PROBLEMS.md).
 
 ## Privacy and security
 
@@ -80,8 +82,8 @@ See [Golden Gate's Android build documentation](docs/src/platforms/android.md) f
 
 ## Roadmap
 
-1. Device-test whether v10020's Activity-task restart is enough to make Google Health rebuild its Gattlink/DTLS session and resume syncing.
-2. Use v10020's retained first-attempt stage/error to decide whether the retry is a local GATT initialization race or a DTLS ownership transition.
+1. Find a stock, unprivileged protocol path that can trigger a haptic without taking over or invalidating Google Health's active session.
+2. Do not pursue Shizuku/root/Accessibility force-stop automation or manual ownership switching as product solutions.
 3. Replace package-name text rules with an installed-app picker for 3–5 rules.
 4. Add a visual pattern editor, cooldown controls and a safe preview button.
 5. Publish reproducible GitHub Actions builds and signed release APKs.
