@@ -19,8 +19,8 @@ The project is based on Fitbit's Apache-2.0-licensed [Golden Gate](https://githu
 - Assign one of five patterns to each application: `single`, `double`, `triple`, `long_gap`, or `urgent`.
 - Filter group summaries, ongoing notifications, self-notifications and recent duplicate content.
 - Persist the selected Air address and retain a device-verified exclusive-connection alert mode.
-- Run a DNCS coexistence probe while Google Health remains active, exposing system link state and Air subscription callbacks.
-- Gate the DNCS test sender on an observed Notification Source CCCD subscription.
+- Retain a DNCS negative-control probe that reproduces successful duplicate-service registration without an Air subscription or haptic.
+- In v10018, test a scan-free known-address GATT client while Google Health keeps the system BLE link.
 
 Example rules:
 
@@ -35,7 +35,8 @@ com.whatsapp=long_gap
 - The v10013 notification path and patterns are device-verified, but require the bridge to own the Air connection.
 - Device testing disproved v10014 time-sharing: closing the Google Health UI does not stop its companion-device background service, so Air does not advertise and the bridge's bounded scans expire.
 - Android exposes no public API for reusing another app's `BluetoothGatt` or DTLS session.
-- v10015 is a DNCS reverse-GATT coexistence probe, not a claimed coexistence solution. Its viability depends on Air discovering and subscribing to a second DNCS service instance.
+- Device testing disproved DNCS coexistence in v10017: no READ/WRITE/CCCD occurred even across a full Bluetooth restart, and an unsubscribed send completed at Android transport level without an Air haptic.
+- The v10018 known-address, dual-GATT-client path is still a device-test probe, not a confirmed coexistence solution.
 - Only `arm64-v8a` is built at present.
 - A pattern is composed of verified **toggle/restore haptic groups**. It is not arbitrary motor waveform control.
 - Fitbit Air cannot be actively owned by this app and Google Health at the same time; the normal scan/connect transport cannot coexist.
@@ -44,13 +45,11 @@ com.whatsapp=long_gap
 ## Basic use
 
 1. Install the app and grant Nearby devices/Bluetooth access.
-2. Leave Google Health running and open **DNCS coexistence probe**.
-3. Refresh system links, then start the probe.
-4. Wait 30 seconds. If no CCCD subscription appears, use the one-time disconnect button and let Google Health reconnect while the probe DNCS service remains registered.
-5. In v10017, use the one-packet unsubscribed diagnostic send and record `accepted`, `onNotificationSent`, and whether Air vibrates.
-6. If there is still no vibration, open Bluetooth settings, turn Bluetooth off and on, and leave the probe active so it re-registers DNCS during Google Health's reconnection.
-7. Save a screenshot of the log. The normal test sender is enabled only after a Notification Source `CCCD ... enabled=true` callback.
-8. The exclusive notification-rule and pattern path remains available for diagnostics, but is expected to fail while Google Health owns Air.
+2. Leave Google Health running and confirm that it has connected Air.
+3. Tap **join existing link and test single pattern**. v10018 does not scan first.
+4. Record `systemGatt(before/after)`, the reported failure stage, and whether Air vibrates.
+5. Open Google Health after the test and confirm a real Air read/sync; do not rely only on the bridge's Android connection snapshot.
+6. The DNCS page remains only as a reproducible negative-control probe.
 
 ## Privacy and security
 
@@ -76,8 +75,8 @@ See [Golden Gate's Android build documentation](docs/src/platforms/android.md) f
 
 ## Roadmap
 
-1. Device-test whether Air accesses or subscribes to v10015's second DNCS service instance.
-2. If the DNCS probe succeeds, implement Control Point/Data Source and connect it to the notification rules. If it fails, stop presenting a stock-APK coexistence path as viable.
+1. Device-test whether v10018 can establish a second GATT client, Gattlink and DTLS while Google Health stays connected, then release only the bridge client.
+2. If v10018 fails, mark stock unprivileged APK coexistence as unavailable and reassess system integration or explicit ownership switching.
 3. Replace package-name text rules with an installed-app picker for 3–5 rules.
 4. Add a visual pattern editor, cooldown controls and a safe preview button.
 5. Publish reproducible GitHub Actions builds and signed release APKs.

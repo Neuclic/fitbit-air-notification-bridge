@@ -120,3 +120,24 @@ owned by Google Health. v10017 therefore tests two remaining questions: whether
 Android will send a Notification Source value on the shared server link before
 a CCCD callback, and whether Air subscribes when Bluetooth is restarted and the
 probe re-registers DNCS during the initial reconnection/service discovery.
+
+The complete v10017 device run answered both questions negatively. Air made no
+DNCS read, write, or CCCD request before or after a full Bluetooth restart.
+Android accepted two unsubscribed Notification Source sends and reported
+`onNotificationSent status=0`, but Air did not vibrate. Those callbacks prove
+only local ATT transport completion; they are not evidence that Air consumed
+the record. DNCS is therefore rejected as the bridge transport for this device.
+
+## Known-address dual-client probe (v10018)
+
+v10018 removes the advertising precondition from the one-shot path. It imports
+the saved Air address from Android's connected GATT-device list when available,
+or registers that address directly with BitGatt, and then attempts the normal
+Gattlink/BOOTSTRAP-DTLS setup without a BLE scan.
+
+This does not reuse Google Health's `BluetoothGatt` object or DTLS session. It
+creates a second app GATT client over whatever physical BLE link Android can
+provide. The decisive device checks are: whether Gattlink/DTLS reaches session,
+whether the short haptic executes, and whether Google Health can still perform
+a real Air read/sync after the bridge releases its own client. Until all three
+are observed, this remains a coexistence probe rather than a supported mode.

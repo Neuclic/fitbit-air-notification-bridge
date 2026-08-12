@@ -5,6 +5,8 @@ package com.fitbit.goldengatehost
 
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
@@ -16,6 +18,13 @@ import com.fitbit.goldengatehost.scan.EXTRA_SAVE_ONLY
 import com.fitbit.goldengatehost.scan.ScanActivity
 
 class SetupActivity : AppCompatActivity() {
+    private val statusHandler = Handler(Looper.getMainLooper())
+    private val statusRefresh = object : Runnable {
+        override fun run() {
+            refreshStatus()
+            statusHandler.postDelayed(this, STATUS_REFRESH_MILLIS)
+        }
+    }
     private lateinit var notificationRules: EditText
     private lateinit var notificationAccessButton: Button
     private lateinit var notificationAccessStatus: TextView
@@ -61,7 +70,7 @@ class SetupActivity : AppCompatActivity() {
             )
             Toast.makeText(
                 this,
-                if (accepted) "已启动 single 按需连接测试" else "请先选择 Fitbit Air",
+                if (accepted) "已启动已知地址直连 single 测试" else "请先选择 Fitbit Air",
                 Toast.LENGTH_LONG
             ).show()
             refreshStatus()
@@ -74,9 +83,16 @@ class SetupActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         refreshStatus()
+        statusHandler.removeCallbacks(statusRefresh)
+        statusHandler.postDelayed(statusRefresh, STATUS_REFRESH_MILLIS)
         if (!AirBluetoothPermissions.hasAll(this)) {
             AirBluetoothPermissions.request(this, REQ_ID)
         }
+    }
+
+    override fun onPause() {
+        statusHandler.removeCallbacks(statusRefresh)
+        super.onPause()
     }
 
     private fun bindViews() {
@@ -113,5 +129,9 @@ class SetupActivity : AppCompatActivity() {
         selectedDeviceStatus.text = "目标设备：${AirBridgeDeviceSettings.loadDeviceLabel(this)}"
         lastTaskStatus.text = "最近任务：${AirBridgeDeviceSettings.loadLastStatus(this)}"
         manualTestButton.isEnabled = AirBridgeDeviceSettings.loadAddress(this) != null
+    }
+
+    companion object {
+        private const val STATUS_REFRESH_MILLIS = 500L
     }
 }

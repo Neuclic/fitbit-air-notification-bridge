@@ -6,14 +6,10 @@ import android.app.PendingIntent
 import android.app.Service
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
-import android.bluetooth.le.ScanCallback
-import android.bluetooth.le.ScanFilter
-import android.bluetooth.le.ScanResult
-import android.bluetooth.le.ScanSettings
+import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
@@ -42,12 +38,11 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Owns the Air connection only for one queued notification task:
- * scan -> connect -> DTLS -> haptic pattern -> verify -> disconnect.
+ * join the known system link -> Gattlink/DTLS -> haptic pattern -> verify -> disconnect our client.
  */
 class AirBridgeOneShotService : Service() {
     private val queue = ArrayDeque<AirNotificationTrigger>()
     private val disposables = CompositeDisposable()
-    private val mainHandler = Handler(Looper.getMainLooper())
     private var processing = false
     private var activePeer: StackPeer<CoapEndpoint>? = null
     private var wakeLock: PowerManager.WakeLock? = null
@@ -100,8 +95,11 @@ class AirBridgeOneShotService : Service() {
                 .subscribe(
                     { result ->
                         val status = "成功：${trigger.sourcePackage} / ${trigger.pattern.wireName}，" +
-                            "${result.groups.size} 组，强度已恢复为 " +
-                            AirDirectSettingsProtocol.hapticsIntensityName(result.finalIntensity)
+                            "${result.haptic.groups.size} 组，强度已恢复为 " +
+                            AirDirectSettingsProtocol.hapticsIntensityName(result.haptic.finalIntensity) +
+                            "；systemGatt(before/after)=" +
+                            "${result.before.systemGattConnectedBefore}/" +
+                            "${result.systemGattConnectedAfterRelease}"
                         updateStatus(status)
                         processing = false
                         processNext()
@@ -121,7 +119,7 @@ class AirBridgeOneShotService : Service() {
     private fun executeWithRetry(
         trigger: AirNotificationTrigger,
         attemptIndex: Int
-    ): Single<AirHapticExecutionResult> = executeOnce(trigger)
+    ): Single<DirectAirExecutionResult> = executeOnce(trigger)
         .onErrorResumeNext { throwable ->
             releasePeer()
             if (attemptIndex >= RETRY_DELAYS_MILLIS.size) {
@@ -129,107 +127,111 @@ class AirBridgeOneShotService : Service() {
             } else {
                 val delay = RETRY_DELAYS_MILLIS[attemptIndex]
                 updateStatus(
-                    "Air 暂不可用，${delay / 1000}s 后进行第 ${attemptIndex + 2} 次尝试；" +
-                        "Google Health 可能正在同步"
+                    "已知地址直连暂不可用，${delay / 1000}s 后进行第 ${attemptIndex + 2} 次尝试"
                 )
                 Single.timer(delay, TimeUnit.MILLISECONDS)
                     .flatMap { executeWithRetry(trigger, attemptIndex + 1) }
             }
         }
 
-    private fun executeOnce(trigger: AirNotificationTrigger): Single<AirHapticExecutionResult> {
+    private fun executeOnce(trigger: AirNotificationTrigger): Single<DirectAirExecutionResult> {
         val address = AirBridgeDeviceSettings.loadAddress(this)
             ?: return Single.error(IllegalStateException("尚未选择 Fitbit Air"))
         return Single.fromCallable {
             AirBridgeRuntime.ensureInitialized(this)
             address
-        }.flatMap { scanForDevice(it) }
-            .flatMap { connection -> connectStack(connection.device.address) }
-            .flatMap { endpoint ->
+        }.flatMap { prepareKnownDevice(it) }
+            .flatMap { prepared ->
+                connectStack(prepared)
+                    .map { endpoint -> prepared to endpoint }
+            }
+            .flatMap { (prepared, endpoint) ->
                 updateStatus("已建立 DTLS，正在执行 ${trigger.pattern.wireName}")
                 AirHapticPatternExecutor.execute(endpoint, trigger.pattern)
+                    .map { result -> prepared to result }
             }
-            .flatMap { result ->
+            .flatMap { (prepared, result) ->
                 releasePeer()
-                Single.timer(RELEASE_SETTLE_MILLIS, TimeUnit.MILLISECONDS).map { result }
+                Single.timer(RELEASE_SETTLE_MILLIS, TimeUnit.MILLISECONDS).map {
+                    DirectAirExecutionResult(
+                        haptic = result,
+                        before = prepared,
+                        systemGattConnectedAfterRelease = isSystemGattConnected(address)
+                    )
+                }
             }
             .doOnError { releasePeer() }
     }
 
-    private fun scanForDevice(address: String): Single<GattConnection> = Single.create { emitter ->
+    /**
+     * Register the saved Bluetooth address with BitGatt without scanning. Android can expose a
+     * device already connected on the system GATT profile even when the peripheral is not
+     * advertising. BitGatt's own connected-device import is asynchronous, so give it a short
+     * bounded window before creating the local connection record ourselves.
+     */
+    private fun prepareKnownDevice(address: String): Single<PreparedAirGatt> = Single.defer {
         val manager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         val adapter: BluetoothAdapter = manager.adapter
-            ?: run {
-                emitter.onError(IllegalStateException("Bluetooth adapter unavailable"))
-                return@create
-            }
+            ?: return@defer Single.error(IllegalStateException("Bluetooth adapter unavailable"))
         if (!adapter.isEnabled) {
-            emitter.onError(IllegalStateException("Bluetooth is disabled"))
-            return@create
+            return@defer Single.error(IllegalStateException("Bluetooth is disabled"))
         }
-        val scanner = adapter.bluetoothLeScanner
-            ?: run {
-                emitter.onError(IllegalStateException("BLE scanner unavailable"))
-                return@create
-            }
-        lateinit var callback: ScanCallback
-        val stopScan = {
-            mainHandler.removeCallbacksAndMessages(callback)
-            runCatching { scanner.stopScan(callback) }
-        }
-        callback = object : ScanCallback() {
-            override fun onScanResult(callbackType: Int, result: ScanResult) {
-                if (!result.device.address.equals(address, ignoreCase = true)) return
-                stopScan()
-                if (!emitter.isDisposed) {
-                    runCatching { registerScannedDevice(result) }
-                        .onSuccess(emitter::onSuccess)
-                        .onFailure(emitter::onError)
+        val systemConnectedBefore = isSystemGattConnected(address)
+        val fitbitGatt = FitbitGatt.getInstance()
+        fitbitGatt.addConnectedDevices()
+        updateStatus(
+            "不扫描：按已保存地址加入 GATT；systemGatt=" +
+                if (systemConnectedBefore) "CONNECTED" else "NOT_CONNECTED"
+        )
+        Single.timer(KNOWN_DEVICE_IMPORT_SETTLE_MILLIS, TimeUnit.MILLISECONDS)
+            .map {
+                val existing = fitbitGatt.getMatchingConnectionsForDeviceNames(null)
+                    .firstOrNull { it.device.address.equals(address, ignoreCase = true) }
+                val connection = existing ?: run {
+                    val wrappedDevice = FitbitBluetoothDevice(adapter.getRemoteDevice(address))
+                    GattConnection(wrappedDevice, Looper.getMainLooper()).also {
+                        fitbitGatt.putConnectionIntoDevices(wrappedDevice, it)
+                    }
                 }
+                PreparedAirGatt(
+                    connection = connection,
+                    systemGattConnectedBefore = systemConnectedBefore,
+                    localGattConnectedBefore = connection.isConnected,
+                    registration = if (existing == null) "KNOWN_ADDRESS" else "SYSTEM_IMPORT"
+                )
             }
-
-            override fun onScanFailed(errorCode: Int) {
-                stopScan()
-                if (!emitter.isDisposed) emitter.onError(IllegalStateException("BLE scan failed: $errorCode"))
-            }
-        }
-        val timeout = Runnable {
-            stopScan()
-            if (!emitter.isDisposed) {
-                emitter.onError(IllegalStateException("Air not advertising (timeout)"))
-            }
-        }
-        emitter.setCancellable {
-            mainHandler.removeCallbacks(timeout)
-            stopScan()
-        }
-        try {
-            scanner.startScan(
-                listOf(ScanFilter.Builder().setDeviceAddress(address).build()),
-                ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(),
-                callback
-            )
-            mainHandler.postDelayed(timeout, SCAN_TIMEOUT_MILLIS)
-        } catch (throwable: Throwable) {
-            stopScan()
-            if (!emitter.isDisposed) emitter.onError(throwable)
-        }
     }
 
-    private fun registerScannedDevice(result: ScanResult): GattConnection {
-        val fitbitGatt = FitbitGatt.getInstance()
-        fitbitGatt.addBackgroundScannedDeviceConnection(result)
-        fitbitGatt.getMatchingConnectionsForDeviceNames(null)
-            .firstOrNull { it.device.address.equals(result.device.address, ignoreCase = true) }
-            ?.let { return it }
-        val wrappedDevice = FitbitBluetoothDevice(result.device)
-        return GattConnection(wrappedDevice, Looper.getMainLooper()).also {
-            fitbitGatt.putConnectionIntoDevices(wrappedDevice, it)
+    private fun isSystemGattConnected(address: String): Boolean {
+        val manager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+        return runCatching {
+            manager.getConnectedDevices(BluetoothProfile.GATT)
+                .any { it.address.equals(address, ignoreCase = true) }
+        }.getOrDefault(false)
+    }
+
+    private fun connectStack(prepared: PreparedAirGatt): Single<CoapEndpoint> {
+        val address = prepared.connection.device.address
+        updateStatus(
+            "正在建立 Gattlink / DTLS；systemGatt=" +
+                "${if (prepared.systemGattConnectedBefore) "CONNECTED" else "NOT_CONNECTED"}, " +
+                "localGatt=${if (prepared.localGattConnectedBefore) "CONNECTED" else "NEW"}, " +
+                "source=${prepared.registration}"
+        )
+        return connectStack(address).onErrorResumeNext { error ->
+            Single.error(
+                IllegalStateException(
+                    "阶段=Gattlink/DTLS；systemGatt=" +
+                        "${prepared.systemGattConnectedBefore}, localGatt=" +
+                        "${prepared.localGattConnectedBefore}, source=${prepared.registration}；" +
+                        "${error.javaClass.simpleName}: ${error.message ?: "unknown"}",
+                    error
+                )
+            )
         }
     }
 
     private fun connectStack(address: String): Single<CoapEndpoint> {
-        updateStatus("已发现 Air，正在建立 Gattlink / DTLS")
         DiagnosticTlsIdentityRecorder.clear()
         val stackConfig = DtlsSocketNetifGattlink(
             Inet4Address.getByName(DEFAULT_SERVER_ADDRESS) as Inet4Address,
@@ -317,8 +319,8 @@ class AirBridgeOneShotService : Service() {
         private const val CHANNEL_ID = "air_bridge_connection"
         private const val NOTIFICATION_ID = 14001
         private const val MAX_QUEUE_SIZE = 10
-        private const val SCAN_TIMEOUT_MILLIS = 7_000L
         private const val CONNECT_TIMEOUT_SECONDS = 18L
+        private const val KNOWN_DEVICE_IMPORT_SETTLE_MILLIS = 500L
         private const val RELEASE_SETTLE_MILLIS = 700L
         private const val WAKE_LOCK_TIMEOUT_MILLIS = 120_000L
         private val RETRY_DELAYS_MILLIS = listOf(2_000L, 5_000L)
@@ -341,4 +343,17 @@ class AirBridgeOneShotService : Service() {
             }
         }
     }
+
+    private data class PreparedAirGatt(
+        val connection: GattConnection,
+        val systemGattConnectedBefore: Boolean,
+        val localGattConnectedBefore: Boolean,
+        val registration: String
+    )
+
+    private data class DirectAirExecutionResult(
+        val haptic: AirHapticExecutionResult,
+        val before: PreparedAirGatt,
+        val systemGattConnectedAfterRelease: Boolean
+    )
 }

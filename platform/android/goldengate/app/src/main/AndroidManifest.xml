@@ -47,7 +47,7 @@
         </activity>
         <activity
             android:name=".AirDncsProbeActivity"
-            android:label="Air DNCS Coexistence Probe"
+            android:label="Air DNCS Negative Probe"
             android:screenOrientation="portrait" />
         <service
             android:name=".AirNotificationListenerService"

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.0.10018 - 2026-08-12
+
+- Record the v10017 device result: duplicate DNCS never receives a READ/WRITE/CCCD, and Android-level notification completion produces no Air haptic.
+- Remove BLE scanning from the primary one-shot experiment.
+- Import the saved Air from Android's connected GATT devices or register its known address directly, then attempt a second GATT client and Gattlink/DTLS session.
+- Report system/local GATT state and the failing transport stage, and snapshot system GATT state again after releasing the bridge client.
+
+This build is a coexistence protocol probe. A successful haptic must also be followed by a real Google Health read/sync check.
+
 ## 0.0.10017 - 2026-08-12
 
 - Record that `BluetoothGattServer.cancelConnection` did not disconnect Google Health's physical Air link.

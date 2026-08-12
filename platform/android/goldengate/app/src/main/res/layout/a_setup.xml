@@ -27,14 +27,14 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="v10017：DNCS 共享链路直发与蓝牙重启重注册探针。保持 Google Health 运行，不要求强制停止。" />
+                android:text="v10018：不扫描，按已保存地址尝试加入 Google Health 已维持的系统 GATT 链路，再建立独立 Gattlink/DTLS。请保持 Google Health 正常运行。" />
 
             <Button
                 android:id="@+id/dncs_probe_button"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:text="打开 DNCS 共存探针（推荐先测）" />
+                android:text="打开 DNCS 排除性探针（已证实不震动）" />
 
             <TextView
                 android:id="@+id/selected_device_status"
@@ -51,7 +51,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="按需连接并测试 single pattern" />
+                android:text="直接加入已有链路并测试 single pattern" />
 
             <TextView
                 android:id="@+id/last_task_status"
@@ -111,7 +111,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
-                android:text="当前按需连接模式只适合 Google Health 已被强制停止的诊断场景；不要把它当作共存方案。DNCS 探针不会扫描或断开 Air。" />
+                android:text="v10017 已证实重复 DNCS 服务无订阅且直发不震动。v10018 是已知地址双 GATT-client 共存实验；成功后还要确认 Google Health 仍保持连接。" />
         </LinearLayout>
     </ScrollView>
 
