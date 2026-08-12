@@ -27,7 +27,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="v10019：震动后不再只关闭 Bridge client，而是请求 Air 主动断开物理链路，让 Google Health 重连并重建协议会话。" />
+                android:text="v10020：记录每次尝试的真实失败阶段；震动后释放 Bridge，并提供一键重开 Google Health 来刷新旧 Gattlink/DTLS 会话。" />
 
             <Button
                 android:id="@+id/dncs_probe_button"
@@ -51,7 +51,14 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="测试 single 并主动断链交还 Google Health" />
+                android:text="测试 SINGLE（记录首次失败详情）" />
+
+            <Button
+                android:id="@+id/open_google_health_button"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="重开 Google Health 恢复同步" />
 
             <TextView
                 android:id="@+id/last_task_status"
@@ -111,7 +118,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
-                android:text="v10018 已证实震动成功但仅释放本应用 client 会令 Google Health 报 3000。v10019 会显示交还命令、是否观察到真实断链，以及最终系统 GATT 状态。" />
+                android:text="v10019 已证实 Link Controller 断链请求虽然返回完成，但 Air 没有发生真实物理断链（sawDisconnect=false）。普通 APK 无法直接销毁 Google Health 进程里的旧会话；v10020 的恢复动作会清空其现有 Activity task 并重新启动入口，但不会强行停止 Google Health 进程。" />
         </LinearLayout>
     </ScrollView>
 

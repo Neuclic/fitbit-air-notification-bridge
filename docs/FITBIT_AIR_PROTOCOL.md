@@ -161,3 +161,26 @@ report `sawDisconnect=true`, and Google Health must subsequently complete a real
 manual sync. If Air is not subscribed to this app's duplicate Link Configuration
 service, the handoff will report `UNAVAILABLE`; a stock app has no public Android
 API that can force another app's GATT client to renegotiate DTLS.
+
+The device result was `PREFERRED_CONFIG_DISCONNECT` with
+`systemGatt(before/after)=true/true` and `sawDisconnect=false`. Google Health
+still returned error 3000 until its UI was normally closed and reopened. The
+command completion was therefore only evidence that this client finished the
+request; it was not evidence of a tracker-originated physical disconnect or a
+successful ownership handoff.
+
+## User-authorized Health task refresh (v10020)
+
+v10020 removes the disproved disconnect claim. After a verified haptic it closes
+the bridge peer, then offers a button and a non-ongoing notification action that
+starts Google Health's public launcher with a cleared Activity task. This is a
+visible user action, not a background sync API, process force-stop, or privilege
+escalation. Device testing must still establish whether the new Activity
+lifecycle is enough to discard the stale protocol session and complete a real
+sync without error 3000.
+
+The same build preserves every failed connection attempt instead of replacing
+the first error with the eventual success. Failures are labelled at
+`RUNTIME_INIT`, `GATT_PREPARE`, `Gattlink/DTLS`, or `HAPTIC`. The known-device
+import settle window is also increased from 500 ms to 1500 ms. Those results
+distinguish a local client-initialization race from a DTLS ownership transition.

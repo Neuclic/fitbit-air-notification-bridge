@@ -27,6 +27,10 @@
         android:name="android.software.companion_device_setup"
         android:required="false" />
 
+    <queries>
+        <package android:name="com.fitbit.FitbitMobile" />
+    </queries>
+
     <application
             android:name=".GoldenGateHostApplication"
             android:allowBackup="true"

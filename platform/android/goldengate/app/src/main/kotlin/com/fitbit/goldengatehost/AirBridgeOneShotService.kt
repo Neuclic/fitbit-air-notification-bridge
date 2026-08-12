@@ -27,10 +27,6 @@ import com.fitbit.goldengate.bt.DEFAULT_CLIENT_ADDRESS
 import com.fitbit.goldengate.bt.DEFAULT_SERVER_ADDRESS
 import com.fitbit.goldengate.bt.PeerRole
 import com.fitbit.goldengate.node.stack.StackPeer
-import com.fitbit.linkcontroller.LinkControllerProvider
-import com.fitbit.linkcontroller.services.configuration.GeneralPurposeCommandCode
-import com.fitbit.linkcontroller.services.configuration.PreferredConnectionConfiguration
-import io.reactivex.Observable
 import io.reactivex.Single
 import io.reactivex.android.schedulers.AndroidSchedulers
 import io.reactivex.disposables.CompositeDisposable
@@ -93,18 +89,25 @@ class AirBridgeOneShotService : Service() {
         processing = true
         updateStatus("准备连接 Air：${trigger.sourcePackage} / ${trigger.pattern.wireName}")
         disposables.add(
-            executeWithRetry(trigger, 0)
+            executeWithRetry(trigger, 0, emptyList())
                 .subscribeOn(Schedulers.io())
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(
                     { result ->
+                        postHealthRecoveryNotification(trigger)
+                        val attemptSummary = if (result.failures.isEmpty()) {
+                            "首次成功"
+                        } else {
+                            "第 ${result.failures.size + 1} 次成功；前序=" +
+                                result.failures.joinToString(" | ")
+                        }
                         val status = "震动成功：${trigger.sourcePackage} / ${trigger.pattern.wireName}，" +
                             "${result.haptic.groups.size} 组，强度已恢复为 " +
                             AirDirectSettingsProtocol.hapticsIntensityName(result.haptic.finalIntensity) +
-                            "；交还=${result.handoff.command}；systemGatt(before/after)=" +
+                            "；Bridge client 已释放；systemGatt(before/after)=" +
                             "${result.before.systemGattConnectedBefore}/" +
-                            "${result.handoff.linkCycle.connected}，" +
-                            "sawDisconnect=${result.handoff.linkCycle.sawDisconnected}"
+                            "${result.release.systemGattConnectedAfter}；$attemptSummary；" +
+                            "请点击“重开 Google Health”刷新旧协议会话"
                         updateStatus(status)
                         processing = false
                         processNext()
@@ -123,19 +126,36 @@ class AirBridgeOneShotService : Service() {
 
     private fun executeWithRetry(
         trigger: AirNotificationTrigger,
-        attemptIndex: Int
+        attemptIndex: Int,
+        failures: List<String>
     ): Single<DirectAirExecutionResult> = executeOnce(trigger)
+        .map { result ->
+            DirectAirExecutionResult(
+                haptic = result.haptic,
+                before = result.before,
+                release = result.release,
+                failures = failures
+            )
+        }
         .onErrorResumeNext { throwable ->
             releasePeer()
+            val failure = "#${attemptIndex + 1} " +
+                "${throwable.javaClass.simpleName}: ${throwable.message ?: "unknown"}"
+            val updatedFailures = failures + failure
             if (attemptIndex >= RETRY_DELAYS_MILLIS.size) {
-                Single.error(throwable)
+                Single.error(
+                    IllegalStateException(
+                        "共 ${attemptIndex + 1} 次失败；${updatedFailures.joinToString(" | ")}",
+                        throwable
+                    )
+                )
             } else {
                 val delay = RETRY_DELAYS_MILLIS[attemptIndex]
                 updateStatus(
-                    "已知地址直连暂不可用，${delay / 1000}s 后进行第 ${attemptIndex + 2} 次尝试"
+                    "$failure；${delay}ms 后进行第 ${attemptIndex + 2} 次尝试"
                 )
                 Single.timer(delay, TimeUnit.MILLISECONDS)
-                    .flatMap { executeWithRetry(trigger, attemptIndex + 1) }
+                    .flatMap { executeWithRetry(trigger, attemptIndex + 1, updatedFailures) }
             }
         }
 
@@ -145,7 +165,11 @@ class AirBridgeOneShotService : Service() {
         return Single.fromCallable {
             AirBridgeRuntime.ensureInitialized(this)
             address
-        }.flatMap { prepareKnownDevice(it) }
+        }.onErrorResumeNext { error -> stageError("RUNTIME_INIT", error) }
+            .flatMap { savedAddress ->
+                prepareKnownDevice(savedAddress)
+                    .onErrorResumeNext { error -> stageError("GATT_PREPARE", error) }
+            }
             .flatMap { prepared ->
                 connectStack(prepared)
                     .map { endpoint -> prepared to endpoint }
@@ -153,81 +177,41 @@ class AirBridgeOneShotService : Service() {
             .flatMap { (prepared, endpoint) ->
                 updateStatus("已建立 DTLS，正在执行 ${trigger.pattern.wireName}")
                 AirHapticPatternExecutor.execute(endpoint, trigger.pattern)
+                    .onErrorResumeNext { error -> stageError("HAPTIC", error) }
                     .map { result -> prepared to result }
             }
             .flatMap { (prepared, result) ->
-                updateStatus("震动完成，正在请求 Air 主动断链并把协议所有权交还 Google Health")
-                handBackToGoogleHealth(prepared)
-                    .map { handoff ->
-                    DirectAirExecutionResult(
-                        haptic = result,
-                        before = prepared,
-                        handoff = handoff
-                    )
+                updateStatus("震动完成，正在释放 Bridge client；Google Health 旧会话需重新打开刷新")
+                releaseBridgeClient(prepared)
+                    .map { release ->
+                        DirectAirExecutionResult(
+                            haptic = result,
+                            before = prepared,
+                            release = release,
+                            failures = emptyList()
+                        )
                 }
             }
             .doOnError { releasePeer() }
     }
 
-    /**
-     * A local BluetoothGatt.disconnect() leaves Google Health's client and the physical link up,
-     * but Air's DTLS endpoint has already switched to this process. Ask the tracker itself to
-     * disconnect so every Android GATT client observes a real link reset and Google Health can
-     * establish a fresh protocol session.
-     */
-    private fun handBackToGoogleHealth(prepared: PreparedAirGatt): Single<AirHandoffResult> {
-        val address = prepared.connection.device.address
-        val controller = LinkControllerProvider.INSTANCE.getLinkController(prepared.connection)
-        val preferredDisconnect = PreferredConnectionConfiguration.Builder()
-            .requestDisconnect()
-            .build()
-        val command = controller.setPreferredConnectionConfiguration(preferredDisconnect)
-            .timeout(HANDOFF_COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .andThen(Single.just("PREFERRED_CONFIG_DISCONNECT"))
-            .onErrorResumeNext { preferredError ->
-                controller.setGeneralPurposeCommand(GeneralPurposeCommandCode.DISCONNECT)
-                    .timeout(HANDOFF_COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                    .andThen(Single.just("GENERAL_PURPOSE_DISCONNECT"))
-                    .onErrorReturn { generalError ->
-                        "UNAVAILABLE:" +
-                            "${preferredError.javaClass.simpleName}/" +
-                            generalError.javaClass.simpleName
-                    }
-            }
-        return command
-            .flatMap { commandName ->
-                Single.timer(HANDOFF_COMMAND_SETTLE_MILLIS, TimeUnit.MILLISECONDS)
-                    .map { commandName }
-            }
-            .flatMap { commandName ->
-                releasePeer()
-                observeSystemGattCycle(address)
-                    .map { linkCycle -> AirHandoffResult(commandName, linkCycle) }
-            }
-    }
+    private fun <T> stageError(stage: String, error: Throwable): Single<T> = Single.error(
+        IllegalStateException(
+            "阶段=$stage；${error.javaClass.simpleName}: ${error.message ?: "unknown"}",
+            error
+        )
+    )
 
-    private fun observeSystemGattCycle(address: String): Single<SystemGattCycle> {
-        val initialConnected = isSystemGattConnected(address)
-        val initial = SystemGattCycle(
-            connected = initialConnected,
-            sawDisconnected = !initialConnected
-        )
-        return Observable.interval(
-            0,
-            HANDOFF_POLL_MILLIS,
-            TimeUnit.MILLISECONDS,
-            Schedulers.computation()
-        )
-            .take(HANDOFF_OBSERVE_MILLIS / HANDOFF_POLL_MILLIS)
-            .map { isSystemGattConnected(address) }
-            .scan(initial) { state, connected ->
-                SystemGattCycle(
-                    connected = connected,
-                    sawDisconnected = state.sawDisconnected || !connected
-                )
-            }
-            .takeUntil { it.sawDisconnected && it.connected }
-            .lastOrError()
+    /**
+     * Only our local StackPeer can be released from an ordinary app. v10019 proved that the
+     * Link Controller disconnect request completed locally but Air never left the system GATT
+     * link (sawDisconnect=false), so it must not be reported as a successful Health handoff.
+     */
+    private fun releaseBridgeClient(prepared: PreparedAirGatt): Single<AirReleaseResult> {
+        val address = prepared.connection.device.address
+        releasePeer()
+        return Single.timer(BRIDGE_RELEASE_SETTLE_MILLIS, TimeUnit.MILLISECONDS)
+            .map { AirReleaseResult(isSystemGattConnected(address)) }
     }
 
     /**
@@ -367,6 +351,27 @@ class AirBridgeOneShotService : Service() {
         )
         .build()
 
+    private fun postHealthRecoveryNotification(trigger: AirNotificationTrigger) {
+        val healthIntent = GoogleHealthRecovery.pendingIntent(this) ?: return
+        val message = "Air 已震动；点击重开 Google Health，恢复设备同步"
+        val notification = NotificationCompat.Builder(this, RECOVERY_CHANNEL_ID)
+            .setSmallIcon(R.mipmap.jiji)
+            .setContentTitle("Google Health 会话需要刷新")
+            .setContentText(message)
+            .setStyle(
+                NotificationCompat.BigTextStyle().bigText(
+                    "$message\n来源：${trigger.sourcePackage} / ${trigger.pattern.wireName}"
+                )
+            )
+            .setContentIntent(healthIntent)
+            .addAction(R.mipmap.jiji, "重开 Google Health", healthIntent)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .build()
+        (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+            .notify(RECOVERY_NOTIFICATION_ID, notification)
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -377,6 +382,13 @@ class AirBridgeOneShotService : Service() {
                     NotificationManager.IMPORTANCE_LOW
                 )
             )
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    RECOVERY_CHANNEL_ID,
+                    "Google Health 同步恢复",
+                    NotificationManager.IMPORTANCE_LOW
+                )
+            )
         }
     }
 
@@ -384,14 +396,13 @@ class AirBridgeOneShotService : Service() {
         private const val EXTRA_SOURCE_PACKAGE = "source_package"
         private const val EXTRA_PATTERN = "pattern"
         private const val CHANNEL_ID = "air_bridge_connection"
+        private const val RECOVERY_CHANNEL_ID = "google_health_recovery"
         private const val NOTIFICATION_ID = 14001
+        private const val RECOVERY_NOTIFICATION_ID = 14002
         private const val MAX_QUEUE_SIZE = 10
         private const val CONNECT_TIMEOUT_SECONDS = 18L
-        private const val KNOWN_DEVICE_IMPORT_SETTLE_MILLIS = 500L
-        private const val HANDOFF_COMMAND_TIMEOUT_SECONDS = 2L
-        private const val HANDOFF_COMMAND_SETTLE_MILLIS = 350L
-        private const val HANDOFF_POLL_MILLIS = 250L
-        private const val HANDOFF_OBSERVE_MILLIS = 12_000L
+        private const val KNOWN_DEVICE_IMPORT_SETTLE_MILLIS = 1_500L
+        private const val BRIDGE_RELEASE_SETTLE_MILLIS = 700L
         private const val WAKE_LOCK_TIMEOUT_MILLIS = 120_000L
         private val RETRY_DELAYS_MILLIS = listOf(2_000L, 5_000L)
 
@@ -424,16 +435,11 @@ class AirBridgeOneShotService : Service() {
     private data class DirectAirExecutionResult(
         val haptic: AirHapticExecutionResult,
         val before: PreparedAirGatt,
-        val handoff: AirHandoffResult
+        val release: AirReleaseResult,
+        val failures: List<String>
     )
 
-    private data class AirHandoffResult(
-        val command: String,
-        val linkCycle: SystemGattCycle
-    )
-
-    private data class SystemGattCycle(
-        val connected: Boolean,
-        val sawDisconnected: Boolean
+    private data class AirReleaseResult(
+        val systemGattConnectedAfter: Boolean
     )
 }

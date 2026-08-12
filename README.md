@@ -20,7 +20,8 @@ The project is based on Fitbit's Apache-2.0-licensed [Golden Gate](https://githu
 - Filter group summaries, ongoing notifications, self-notifications and recent duplicate content.
 - Persist the selected Air address and retain a device-verified exclusive-connection alert mode.
 - Retain a DNCS negative-control probe that reproduces successful duplicate-service registration without an Air subscription or haptic.
-- In v10018, test a scan-free known-address GATT client while Google Health keeps the system BLE link.
+- Use a scan-free known-address GATT client while Google Health keeps the system BLE link.
+- In v10020, retain the exact stage/error of every connection attempt and offer a user-tapped Google Health task restart after the haptic.
 
 Example rules:
 
@@ -38,7 +39,8 @@ com.whatsapp=long_gap
 - Device testing disproved DNCS coexistence in v10017: no READ/WRITE/CCCD occurred even across a full Bluetooth restart, and an unsubscribed send completed at Android transport level without an Air haptic.
 - v10018 confirmed that a second GATT client can join and execute a haptic, but it is not transparent coexistence.
 - v10018 executed the haptic, but releasing only the bridge client left Google Health sync failing with error 3000; transparent dual-DTLS coexistence is therefore rejected.
-- v10019 requests a tracker-originated physical disconnect after the haptic so Google Health can reconnect. This is explicit ownership handoff, not seamless coexistence.
+- v10019's Link Controller request returned locally, but device testing observed `systemGatt=true/true` and `sawDisconnect=false`; Google Health still could not sync until its UI task was closed and reopened. Automatic handoff from a stock unprivileged APK is therefore rejected.
+- v10020 can only release the bridge client and offer a visible, user-authorized action that clears and relaunches Google Health's Activity task. Whether that lifecycle restart is sufficient must be verified on the device; it is not a silent background repair API.
 - Only `arm64-v8a` is built at present.
 - A pattern is composed of verified **toggle/restore haptic groups**. It is not arbitrary motor waveform control.
 - Fitbit Air cannot be actively owned by this app and Google Health at the same time; the normal scan/connect transport cannot coexist.
@@ -48,10 +50,11 @@ com.whatsapp=long_gap
 
 1. Install the app and grant Nearby devices/Bluetooth access.
 2. Leave Google Health running and confirm that it has connected Air.
-3. Tap **test single and physically hand back to Google Health**. v10019 does not scan first.
-4. Record the handoff command, `sawDisconnect`, `systemGatt(before/after)`, and whether Air vibrates.
-5. A handoff counts only when `sawDisconnect=true` and Google Health subsequently completes a real manual sync.
-6. The DNCS page remains only as a reproducible negative-control probe.
+3. Tap **test SINGLE (record first-failure details)**. v10020 does not scan first.
+4. Record whether the result says `first success` or retains a prior `RUNTIME_INIT`, `GATT_PREPARE`, `Gattlink/DTLS`, or `HAPTIC` error.
+5. After Air vibrates, tap **restart Google Health to restore sync** in the app or its recovery notification, then perform a real manual sync in Google Health.
+6. Count the recovery as successful only if that manual sync completes without error 3000.
+7. The DNCS page remains only as a reproducible negative-control probe.
 
 ## Privacy and security
 
@@ -77,8 +80,8 @@ See [Golden Gate's Android build documentation](docs/src/platforms/android.md) f
 
 ## Roadmap
 
-1. Device-test whether v10019 produces `sawDisconnect=true` and lets Google Health resume syncing automatically.
-2. If the tracker disconnect command is unavailable, mark automatic handoff from a stock unprivileged APK as unavailable and reassess system integration or explicit manual ownership switching.
+1. Device-test whether v10020's Activity-task restart is enough to make Google Health rebuild its Gattlink/DTLS session and resume syncing.
+2. Use v10020's retained first-attempt stage/error to decide whether the retry is a local GATT initialization race or a DTLS ownership transition.
 3. Replace package-name text rules with an installed-app picker for 3–5 rules.
 4. Add a visual pattern editor, cooldown controls and a safe preview button.
 5. Publish reproducible GitHub Actions builds and signed release APKs.

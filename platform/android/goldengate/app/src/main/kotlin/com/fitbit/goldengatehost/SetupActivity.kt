@@ -32,6 +32,7 @@ class SetupActivity : AppCompatActivity() {
     private lateinit var lastTaskStatus: TextView
     private lateinit var chooseDeviceButton: Button
     private lateinit var manualTestButton: Button
+    private lateinit var openGoogleHealthButton: Button
     private lateinit var dncsProbeButton: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -70,10 +71,18 @@ class SetupActivity : AppCompatActivity() {
             )
             Toast.makeText(
                 this,
-                if (accepted) "已启动 single + 主动断链交还测试" else "请先选择 Fitbit Air",
+                if (accepted) "已启动 single 测试；结束后可一键重开 Google Health" else "请先选择 Fitbit Air",
                 Toast.LENGTH_LONG
             ).show()
             refreshStatus()
+        }
+        openGoogleHealthButton.setOnClickListener {
+            val opened = GoogleHealthRecovery.open(this)
+            Toast.makeText(
+                this,
+                if (opened) "正在重开 Google Health 以刷新设备会话" else "未找到 Google Health",
+                Toast.LENGTH_LONG
+            ).show()
         }
         dncsProbeButton.setOnClickListener {
             startActivity(Intent(this, AirDncsProbeActivity::class.java))
@@ -103,6 +112,7 @@ class SetupActivity : AppCompatActivity() {
         lastTaskStatus = ActivityCompat.requireViewById(this, R.id.last_task_status)
         chooseDeviceButton = ActivityCompat.requireViewById(this, R.id.start_button)
         manualTestButton = ActivityCompat.requireViewById(this, R.id.manual_test_button)
+        openGoogleHealthButton = ActivityCompat.requireViewById(this, R.id.open_google_health_button)
         dncsProbeButton = ActivityCompat.requireViewById(this, R.id.dncs_probe_button)
     }
 
