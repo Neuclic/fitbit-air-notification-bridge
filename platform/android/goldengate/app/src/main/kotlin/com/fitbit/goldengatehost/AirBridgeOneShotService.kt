@@ -27,6 +27,10 @@ import com.fitbit.goldengate.bt.DEFAULT_CLIENT_ADDRESS
 import com.fitbit.goldengate.bt.DEFAULT_SERVER_ADDRESS
 import com.fitbit.goldengate.bt.PeerRole
 import com.fitbit.goldengate.node.stack.StackPeer
+import com.fitbit.linkcontroller.LinkControllerProvider
+import com.fitbit.linkcontroller.services.configuration.GeneralPurposeCommandCode
+import com.fitbit.linkcontroller.services.configuration.PreferredConnectionConfiguration
+import io.reactivex.Observable
 import io.reactivex.Single
 import io.reactivex.android.schedulers.AndroidSchedulers
 import io.reactivex.disposables.CompositeDisposable
@@ -94,12 +98,13 @@ class AirBridgeOneShotService : Service() {
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(
                     { result ->
-                        val status = "成功：${trigger.sourcePackage} / ${trigger.pattern.wireName}，" +
+                        val status = "震动成功：${trigger.sourcePackage} / ${trigger.pattern.wireName}，" +
                             "${result.haptic.groups.size} 组，强度已恢复为 " +
                             AirDirectSettingsProtocol.hapticsIntensityName(result.haptic.finalIntensity) +
-                            "；systemGatt(before/after)=" +
+                            "；交还=${result.handoff.command}；systemGatt(before/after)=" +
                             "${result.before.systemGattConnectedBefore}/" +
-                            "${result.systemGattConnectedAfterRelease}"
+                            "${result.handoff.linkCycle.connected}，" +
+                            "sawDisconnect=${result.handoff.linkCycle.sawDisconnected}"
                         updateStatus(status)
                         processing = false
                         processNext()
@@ -151,16 +156,78 @@ class AirBridgeOneShotService : Service() {
                     .map { result -> prepared to result }
             }
             .flatMap { (prepared, result) ->
-                releasePeer()
-                Single.timer(RELEASE_SETTLE_MILLIS, TimeUnit.MILLISECONDS).map {
+                updateStatus("震动完成，正在请求 Air 主动断链并把协议所有权交还 Google Health")
+                handBackToGoogleHealth(prepared)
+                    .map { handoff ->
                     DirectAirExecutionResult(
                         haptic = result,
                         before = prepared,
-                        systemGattConnectedAfterRelease = isSystemGattConnected(address)
+                        handoff = handoff
                     )
                 }
             }
             .doOnError { releasePeer() }
+    }
+
+    /**
+     * A local BluetoothGatt.disconnect() leaves Google Health's client and the physical link up,
+     * but Air's DTLS endpoint has already switched to this process. Ask the tracker itself to
+     * disconnect so every Android GATT client observes a real link reset and Google Health can
+     * establish a fresh protocol session.
+     */
+    private fun handBackToGoogleHealth(prepared: PreparedAirGatt): Single<AirHandoffResult> {
+        val address = prepared.connection.device.address
+        val controller = LinkControllerProvider.INSTANCE.getLinkController(prepared.connection)
+        val preferredDisconnect = PreferredConnectionConfiguration.Builder()
+            .requestDisconnect()
+            .build()
+        val command = controller.setPreferredConnectionConfiguration(preferredDisconnect)
+            .timeout(HANDOFF_COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .andThen(Single.just("PREFERRED_CONFIG_DISCONNECT"))
+            .onErrorResumeNext { preferredError ->
+                controller.setGeneralPurposeCommand(GeneralPurposeCommandCode.DISCONNECT)
+                    .timeout(HANDOFF_COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    .andThen(Single.just("GENERAL_PURPOSE_DISCONNECT"))
+                    .onErrorReturn { generalError ->
+                        "UNAVAILABLE:" +
+                            "${preferredError.javaClass.simpleName}/" +
+                            generalError.javaClass.simpleName
+                    }
+            }
+        return command
+            .flatMap { commandName ->
+                Single.timer(HANDOFF_COMMAND_SETTLE_MILLIS, TimeUnit.MILLISECONDS)
+                    .map { commandName }
+            }
+            .flatMap { commandName ->
+                releasePeer()
+                observeSystemGattCycle(address)
+                    .map { linkCycle -> AirHandoffResult(commandName, linkCycle) }
+            }
+    }
+
+    private fun observeSystemGattCycle(address: String): Single<SystemGattCycle> {
+        val initialConnected = isSystemGattConnected(address)
+        val initial = SystemGattCycle(
+            connected = initialConnected,
+            sawDisconnected = !initialConnected
+        )
+        return Observable.interval(
+            0,
+            HANDOFF_POLL_MILLIS,
+            TimeUnit.MILLISECONDS,
+            Schedulers.computation()
+        )
+            .take(HANDOFF_OBSERVE_MILLIS / HANDOFF_POLL_MILLIS)
+            .map { isSystemGattConnected(address) }
+            .scan(initial) { state, connected ->
+                SystemGattCycle(
+                    connected = connected,
+                    sawDisconnected = state.sawDisconnected || !connected
+                )
+            }
+            .takeUntil { it.sawDisconnected && it.connected }
+            .lastOrError()
     }
 
     /**
@@ -321,7 +388,10 @@ class AirBridgeOneShotService : Service() {
         private const val MAX_QUEUE_SIZE = 10
         private const val CONNECT_TIMEOUT_SECONDS = 18L
         private const val KNOWN_DEVICE_IMPORT_SETTLE_MILLIS = 500L
-        private const val RELEASE_SETTLE_MILLIS = 700L
+        private const val HANDOFF_COMMAND_TIMEOUT_SECONDS = 2L
+        private const val HANDOFF_COMMAND_SETTLE_MILLIS = 350L
+        private const val HANDOFF_POLL_MILLIS = 250L
+        private const val HANDOFF_OBSERVE_MILLIS = 12_000L
         private const val WAKE_LOCK_TIMEOUT_MILLIS = 120_000L
         private val RETRY_DELAYS_MILLIS = listOf(2_000L, 5_000L)
 
@@ -354,6 +424,16 @@ class AirBridgeOneShotService : Service() {
     private data class DirectAirExecutionResult(
         val haptic: AirHapticExecutionResult,
         val before: PreparedAirGatt,
-        val systemGattConnectedAfterRelease: Boolean
+        val handoff: AirHandoffResult
+    )
+
+    private data class AirHandoffResult(
+        val command: String,
+        val linkCycle: SystemGattCycle
+    )
+
+    private data class SystemGattCycle(
+        val connected: Boolean,
+        val sawDisconnected: Boolean
     )
 }

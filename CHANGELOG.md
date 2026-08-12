@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.0.10019 - 2026-08-12
+
+- Record that v10018 can join the existing Android GATT link and execute the haptic, but a local-client-only release leaves Google Health unable to sync with error 3000.
+- After the haptic, request a tracker-originated physical disconnect through Link Configuration, with General Purpose Disconnect as a fallback.
+- Observe the Android system GATT state for a real disconnect/reconnect cycle before reporting the handoff result.
+- Never retry the haptic merely because the post-haptic handoff command is unavailable.
+
+This build tests explicit ownership handoff, not simultaneous DTLS coexistence.
+
 ## 0.0.10018 - 2026-08-12
 
 - Record the v10017 device result: duplicate DNCS never receives a READ/WRITE/CCCD, and Android-level notification completion produces no Air haptic.

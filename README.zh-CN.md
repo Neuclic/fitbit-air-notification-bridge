@@ -34,7 +34,9 @@ com.whatsapp=long_gap
 - v10014 的按需分时方案已经实机证伪：只关闭 Google Health 界面不会停止它的 Companion Device 后台服务，Air 不重新广播，Bridge 的三次扫描会失败。
 - Android 没有公开 API 可让第三方应用复用另一个应用的 `BluetoothGatt` 或 DTLS 会话。
 - v10017 已实机证伪 DNCS 共存：完整蓝牙重启后仍无 READ/WRITE/CCCD；未订阅直发虽返回 `accepted=true` 和 `status=0`，但 Air 不震动。
-- v10018 的已知地址双 GATT-client 路径仍是待实机验证的协议探针，不是已确认的共存方案。
+- v10018 已确认第二个 GATT client 能加入并触发震动，但它不是透明共存方案。
+- v10018 实机结果为：震动成功，但仅释放 Bridge client 后 Google Health 同步报 3000；这排除了“两个 DTLS 会话可透明共存”。
+- v10019 改为震动后请求 Air 主动断开物理链路，再由 Google Health 重连；这是显式所有权交还，不是无缝共存。
 - 当前只构建 `arm64-v8a`。
 - pattern 是由已经验证的“切换强度—恢复强度”短震组组成，不是任意马达波形控制。
 - 本应用和 Google Health 不能同时主动占用 Fitbit Air；常规扫描/连接模式不能共存。
@@ -44,9 +46,9 @@ com.whatsapp=long_gap
 
 1. 安装应用并允许附近设备/蓝牙权限。
 2. 保持 Google Health 正常运行，并确认它已经连接 Air。
-3. 点击“直接加入已有链路并测试 single pattern”。v10018 不会先扫描 Air。
-4. 记录最终状态中的 `systemGatt(before/after)`、失败阶段以及 Air 是否震动。
-5. 测试后打开 Google Health，确认它仍可读取/同步 Air；不要只依据 Bridge 显示的 Android 系统连接状态。
+3. 点击“测试 single 并主动断链交还 Google Health”。v10019 不会先扫描 Air。
+4. 记录最终状态中的 `交还`、`sawDisconnect`、`systemGatt(before/after)` 以及 Air 是否震动。
+5. 只有 `sawDisconnect=true` 且测试后 Google Health 能完成手动同步，才算交还成功。
 6. DNCS 页面只保留用于复现已经确认的负面结果。
 
 ## 隐私和安全
@@ -58,8 +60,8 @@ com.whatsapp=long_gap
 
 ## 路线图
 
-1. 实机验证 v10018 能否在 Google Health 保持连接时建立第二个 GATT client、Gattlink 和 DTLS，并在释放后不破坏 Google Health。
-2. 若 v10018 失败，把普通无特权 APK 共存路径标记为不可行，重新评估系统级集成或切换所有权的产品方案。
+1. 实机验证 v10019 的 Air 端主动断链能否产生 `sawDisconnect=true`，并让 Google Health 自动恢复同步。
+2. 若主动断链命令不可用，把普通无特权 APK 的自动交还路径标记为不可行，重新评估系统级集成或显式人工切换所有权。
 3. 把包名文本配置改成 3–5 个应用的可视化选择器。
 4. 增加 pattern 编辑器、冷却时间和安全预览。
 5. 增加可复现的 GitHub Actions 构建与签名 Release APK。

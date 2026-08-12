@@ -27,7 +27,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="v10018：不扫描，按已保存地址尝试加入 Google Health 已维持的系统 GATT 链路，再建立独立 Gattlink/DTLS。请保持 Google Health 正常运行。" />
+                android:text="v10019：震动后不再只关闭 Bridge client，而是请求 Air 主动断开物理链路，让 Google Health 重连并重建协议会话。" />
 
             <Button
                 android:id="@+id/dncs_probe_button"
@@ -51,7 +51,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="直接加入已有链路并测试 single pattern" />
+                android:text="测试 single 并主动断链交还 Google Health" />
 
             <TextView
                 android:id="@+id/last_task_status"
@@ -111,7 +111,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
-                android:text="v10017 已证实重复 DNCS 服务无订阅且直发不震动。v10018 是已知地址双 GATT-client 共存实验；成功后还要确认 Google Health 仍保持连接。" />
+                android:text="v10018 已证实震动成功但仅释放本应用 client 会令 Google Health 报 3000。v10019 会显示交还命令、是否观察到真实断链，以及最终系统 GATT 状态。" />
         </LinearLayout>
     </ScrollView>
 

@@ -141,3 +141,23 @@ provide. The decisive device checks are: whether Gattlink/DTLS reaches session,
 whether the short haptic executes, and whether Google Health can still perform
 a real Air read/sync after the bridge releases its own client. Until all three
 are observed, this remains a coexistence probe rather than a supported mode.
+
+The v10018 device result showed that the second client could establish DTLS and
+execute the haptic. After the bridge closed only its own GATT client, however,
+Google Health could no longer sync and displayed error 3000. The Android system
+link surviving is therefore not a valid handoff signal: Air's active protocol
+session had changed while Google Health retained stale connection state.
+
+## Explicit physical-link handoff (v10019)
+
+v10019 treats simultaneous DTLS ownership as disproved. After executing and
+verifying the haptic, it first publishes Link Configuration's disconnect request
+to Air, falling back to the General Purpose Disconnect command. Only after that
+request completes or times out does it close the bridge peer. It then polls the
+system GATT profile for an actual disconnect/reconnect cycle.
+
+The decisive result is not merely a final `CONNECTED` snapshot. The app must
+report `sawDisconnect=true`, and Google Health must subsequently complete a real
+manual sync. If Air is not subscribed to this app's duplicate Link Configuration
+service, the handoff will report `UNAVAILABLE`; a stock app has no public Android
+API that can force another app's GATT client to renegotiate DTLS.

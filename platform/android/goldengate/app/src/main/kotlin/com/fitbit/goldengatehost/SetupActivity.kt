@@ -70,7 +70,7 @@ class SetupActivity : AppCompatActivity() {
             )
             Toast.makeText(
                 this,
-                if (accepted) "已启动已知地址直连 single 测试" else "请先选择 Fitbit Air",
+                if (accepted) "已启动 single + 主动断链交还测试" else "请先选择 Fitbit Air",
                 Toast.LENGTH_LONG
             ).show()
             refreshStatus()

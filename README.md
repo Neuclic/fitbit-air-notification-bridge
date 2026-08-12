@@ -36,7 +36,9 @@ com.whatsapp=long_gap
 - Device testing disproved v10014 time-sharing: closing the Google Health UI does not stop its companion-device background service, so Air does not advertise and the bridge's bounded scans expire.
 - Android exposes no public API for reusing another app's `BluetoothGatt` or DTLS session.
 - Device testing disproved DNCS coexistence in v10017: no READ/WRITE/CCCD occurred even across a full Bluetooth restart, and an unsubscribed send completed at Android transport level without an Air haptic.
-- The v10018 known-address, dual-GATT-client path is still a device-test probe, not a confirmed coexistence solution.
+- v10018 confirmed that a second GATT client can join and execute a haptic, but it is not transparent coexistence.
+- v10018 executed the haptic, but releasing only the bridge client left Google Health sync failing with error 3000; transparent dual-DTLS coexistence is therefore rejected.
+- v10019 requests a tracker-originated physical disconnect after the haptic so Google Health can reconnect. This is explicit ownership handoff, not seamless coexistence.
 - Only `arm64-v8a` is built at present.
 - A pattern is composed of verified **toggle/restore haptic groups**. It is not arbitrary motor waveform control.
 - Fitbit Air cannot be actively owned by this app and Google Health at the same time; the normal scan/connect transport cannot coexist.
@@ -46,9 +48,9 @@ com.whatsapp=long_gap
 
 1. Install the app and grant Nearby devices/Bluetooth access.
 2. Leave Google Health running and confirm that it has connected Air.
-3. Tap **join existing link and test single pattern**. v10018 does not scan first.
-4. Record `systemGatt(before/after)`, the reported failure stage, and whether Air vibrates.
-5. Open Google Health after the test and confirm a real Air read/sync; do not rely only on the bridge's Android connection snapshot.
+3. Tap **test single and physically hand back to Google Health**. v10019 does not scan first.
+4. Record the handoff command, `sawDisconnect`, `systemGatt(before/after)`, and whether Air vibrates.
+5. A handoff counts only when `sawDisconnect=true` and Google Health subsequently completes a real manual sync.
 6. The DNCS page remains only as a reproducible negative-control probe.
 
 ## Privacy and security
@@ -75,8 +77,8 @@ See [Golden Gate's Android build documentation](docs/src/platforms/android.md) f
 
 ## Roadmap
 
-1. Device-test whether v10018 can establish a second GATT client, Gattlink and DTLS while Google Health stays connected, then release only the bridge client.
-2. If v10018 fails, mark stock unprivileged APK coexistence as unavailable and reassess system integration or explicit ownership switching.
+1. Device-test whether v10019 produces `sawDisconnect=true` and lets Google Health resume syncing automatically.
+2. If the tracker disconnect command is unavailable, mark automatic handoff from a stock unprivileged APK as unavailable and reassess system integration or explicit manual ownership switching.
 3. Replace package-name text rules with an installed-app picker for 3–5 rules.
 4. Add a visual pattern editor, cooldown controls and a safe preview button.
 5. Publish reproducible GitHub Actions builds and signed release APKs.
