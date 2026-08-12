@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.0.10017 - 2026-08-12
+
+- Record that `BluetoothGattServer.cancelConnection` did not disconnect Google Health's physical Air link.
+- Add an explicit one-packet DNCS send over the shared server link, even before a CCCD callback, and record `onNotificationSent`.
+- Listen for Bluetooth adapter state changes and automatically re-register the probe DNCS service when Bluetooth is turned back on.
+- Add a shortcut to Bluetooth settings for an initial-service-discovery test while Google Health remains enabled.
+
 ## 0.0.10016 - 2026-08-12
 
 - Confirm that a second app-side GATT server joins the physical Air connection already owned by Google Health.

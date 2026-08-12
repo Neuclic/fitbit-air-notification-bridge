@@ -27,7 +27,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="v10016：按需抢占连接已证实不能与 Google Health 后台服务共存。本版新增 DNCS 反向 GATT 共存探针和一次性重连验证，不要求强制停止 Google Health。" />
+                android:text="v10017：DNCS 共享链路直发与蓝牙重启重注册探针。保持 Google Health 运行，不要求强制停止。" />
 
             <Button
                 android:id="@+id/dncs_probe_button"

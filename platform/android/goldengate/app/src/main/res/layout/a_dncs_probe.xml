@@ -46,11 +46,24 @@
         android:text="仍未订阅：断开一次并等待 Google Health 重连" />
 
     <Button
+        android:id="@+id/dncs_force_send_test"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:enabled="false"
+        android:text="诊断：未订阅也直接发送一个 DNCS 包" />
+
+    <Button
         android:id="@+id/dncs_send_test"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:enabled="false"
         android:text="发送一次 DNCS 测试通知" />
+
+    <Button
+        android:id="@+id/dncs_open_bluetooth_settings"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="仍无震动：打开蓝牙设置，关闭再打开蓝牙" />
 
     <Button
         android:id="@+id/dncs_stop_probe"

@@ -112,3 +112,11 @@ in the first second after registration. v10016 therefore adds a manual,
 one-time `BluetoothGattServer.cancelConnection` test: the probe keeps its DNCS
 service registered while Google Health reconnects Air, allowing service
 discovery to begin with both server instances already present.
+
+The v10016 one-time cancellation produced no disconnect callback and the
+system still listed Air under both GATT client and GATT server profiles. This
+shows that cancellation from the probe does not tear down the physical link
+owned by Google Health. v10017 therefore tests two remaining questions: whether
+Android will send a Notification Source value on the shared server link before
+a CCCD callback, and whether Air subscribes when Bluetooth is restarted and the
+probe re-registers DNCS during the initial reconnection/service discovery.

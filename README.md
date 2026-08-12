@@ -47,8 +47,10 @@ com.whatsapp=long_gap
 2. Leave Google Health running and open **DNCS coexistence probe**.
 3. Refresh system links, then start the probe.
 4. Wait 30 seconds. If no CCCD subscription appears, use the one-time disconnect button and let Google Health reconnect while the probe DNCS service remains registered.
-5. Save a screenshot of the log. The test sender is enabled only after a Notification Source `CCCD ... enabled=true` callback.
-6. The exclusive notification-rule and pattern path remains available for diagnostics, but is expected to fail while Google Health owns Air.
+5. In v10017, use the one-packet unsubscribed diagnostic send and record `accepted`, `onNotificationSent`, and whether Air vibrates.
+6. If there is still no vibration, open Bluetooth settings, turn Bluetooth off and on, and leave the probe active so it re-registers DNCS during Google Health's reconnection.
+7. Save a screenshot of the log. The normal test sender is enabled only after a Notification Source `CCCD ... enabled=true` callback.
+8. The exclusive notification-rule and pattern path remains available for diagnostics, but is expected to fail while Google Health owns Air.
 
 ## Privacy and security
 
