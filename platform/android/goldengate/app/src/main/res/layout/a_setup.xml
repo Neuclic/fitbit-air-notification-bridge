@@ -27,7 +27,14 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="v10014 按需连接：收到通知后才连接 Air，执行 pattern 并复核，然后立即断开，把设备归还给 Google Health。" />
+                android:text="v10015：按需抢占连接已证实不能与 Google Health 后台服务共存。本版新增 DNCS 反向 GATT 共存探针，不要求退出 Google Health。" />
+
+            <Button
+                android:id="@+id/dncs_probe_button"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="打开 DNCS 共存探针（推荐先测）" />
 
             <TextView
                 android:id="@+id/selected_device_status"
@@ -104,7 +111,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
-                android:text="若 Google Health 正在同步，Bridge 会等待并重试。通知到震动可能有数秒延迟。" />
+                android:text="当前按需连接模式只适合 Google Health 已被强制停止的诊断场景；不要把它当作共存方案。DNCS 探针不会扫描或断开 Air。" />
         </LinearLayout>
     </ScrollView>
 

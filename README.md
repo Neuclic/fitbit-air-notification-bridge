@@ -18,9 +18,9 @@ The project is based on Fitbit's Apache-2.0-licensed [Golden Gate](https://githu
 - Monitor up to five Android application packages.
 - Assign one of five patterns to each application: `single`, `double`, `triple`, `long_gap`, or `urgent`.
 - Filter group summaries, ongoing notifications, self-notifications and recent duplicate content.
-- Persist the selected Air address and execute each alert as a foreground one-shot task.
-- Scan, connect, establish DTLS, run and verify the pattern, then disconnect immediately so Google Health can reconnect.
-- Retry a temporarily unavailable Air twice with short backoff delays.
+- Persist the selected Air address and retain a device-verified exclusive-connection alert mode.
+- Run a DNCS coexistence probe while Google Health remains active, exposing system link state and Air subscription callbacks.
+- Gate the DNCS test sender on an observed Notification Source CCCD subscription.
 
 Example rules:
 
@@ -32,20 +32,22 @@ com.whatsapp=long_gap
 
 ## Important limitations
 
-- The v10013 notification path and patterns are device-verified. The new v10014 on-demand coexistence path is built and locally tested but still needs device validation alongside Google Health.
+- The v10013 notification path and patterns are device-verified, but require the bridge to own the Air connection.
+- Device testing disproved v10014 time-sharing: closing the Google Health UI does not stop its companion-device background service, so Air does not advertise and the bridge's bounded scans expire.
+- Android exposes no public API for reusing another app's `BluetoothGatt` or DTLS session.
+- v10015 is a DNCS reverse-GATT coexistence probe, not a claimed coexistence solution. Its viability depends on Air discovering and subscribing to a second DNCS service instance.
 - Only `arm64-v8a` is built at present.
 - A pattern is composed of verified **toggle/restore haptic groups**. It is not arbitrary motor waveform control.
-- Fitbit Air cannot be actively owned by this app and Google Health at the same time. v10014 time-shares it instead of maintaining a permanent connection.
-- If Google Health is syncing, alert delivery may be delayed while the bridge waits for the Air to advertise again.
+- Fitbit Air cannot be actively owned by this app and Google Health at the same time; the normal scan/connect transport cannot coexist.
 - The current saved Bluetooth address may need to be selected again if the device rotates its BLE address.
 
 ## Basic use
 
 1. Install the app and grant Nearby devices/Bluetooth access.
-2. Tap **Select and save Fitbit Air** once. Google Health may need to be idle for this initial scan.
-3. Configure up to five `package=pattern` rules and grant Notification access.
-4. Use the one-shot `single` test. The status panel records discovery, retry, success, or failure.
-5. Leave Google Health running and send a real notification from a configured application.
+2. Leave Google Health running and open **DNCS coexistence probe**.
+3. Refresh system links, then start the probe.
+4. Save a screenshot of the log. The test sender is enabled only after a Notification Source `CCCD ... enabled=true` callback.
+5. The exclusive notification-rule and pattern path remains available for diagnostics, but is expected to fail while Google Health owns Air.
 
 ## Privacy and security
 
@@ -71,8 +73,8 @@ See [Golden Gate's Android build documentation](docs/src/platforms/android.md) f
 
 ## Roadmap
 
-1. Validate v10014 success rate and latency while Google Health is idle, syncing, foreground, and background.
-2. Add Companion Device presence support and resilient handling of BLE address rotation.
+1. Device-test whether Air accesses or subscribes to v10015's second DNCS service instance.
+2. If the DNCS probe succeeds, implement Control Point/Data Source and connect it to the notification rules. If it fails, stop presenting a stock-APK coexistence path as viable.
 3. Replace package-name text rules with an installed-app picker for 3–5 rules.
 4. Add a visual pattern editor, cooldown controls and a safe preview button.
 5. Publish reproducible GitHub Actions builds and signed release APKs.

@@ -23,6 +23,7 @@ class SetupActivity : AppCompatActivity() {
     private lateinit var lastTaskStatus: TextView
     private lateinit var chooseDeviceButton: Button
     private lateinit var manualTestButton: Button
+    private lateinit var dncsProbeButton: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -65,6 +66,9 @@ class SetupActivity : AppCompatActivity() {
             ).show()
             refreshStatus()
         }
+        dncsProbeButton.setOnClickListener {
+            startActivity(Intent(this, AirDncsProbeActivity::class.java))
+        }
     }
 
     override fun onResume() {
@@ -83,6 +87,7 @@ class SetupActivity : AppCompatActivity() {
         lastTaskStatus = ActivityCompat.requireViewById(this, R.id.last_task_status)
         chooseDeviceButton = ActivityCompat.requireViewById(this, R.id.start_button)
         manualTestButton = ActivityCompat.requireViewById(this, R.id.manual_test_button)
+        dncsProbeButton = ActivityCompat.requireViewById(this, R.id.dncs_probe_button)
     }
 
     private fun saveRules(): Boolean {

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.0.10015 - 2026-08-12
+
+- Record the device-verified failure of v10014 time-sharing: Google Health keeps its companion-device connection after its UI is closed.
+- Add a DNCS coexistence probe that opens a phone-side GATT server without scanning for or connecting to Air.
+- Show the system GATT and GATT-server connection lists and all service/read/write/CCCD callbacks.
+- Gate the DNCS test send button on an observed Notification Source subscription.
+- Add a unit-tested encoder for the eight-byte Fitbit DNCS Notification Source record.
+
+This build is a protocol probe, not a completed coexistence solution.
+
 ## 0.0.10014 - 2026-08-12
 
 - Replace the visible, persistent notification connection with a foreground one-shot service.

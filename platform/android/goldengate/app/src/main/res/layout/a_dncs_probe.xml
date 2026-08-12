@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="12dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="DNCS 共存探针（不扫描、不连接 Air）"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="保持 Google Health 正常运行。先刷新系统连接，再启动探针；只有观察到 Air 订阅后，测试发送按钮才会启用。" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/dncs_refresh_links"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="刷新连接" />
+
+        <Button
+            android:id="@+id/dncs_start_probe"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="启动探针" />
+    </LinearLayout>
+
+    <Button
+        android:id="@+id/dncs_send_test"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:enabled="false"
+        android:text="发送一次 DNCS 测试通知" />
+
+    <Button
+        android:id="@+id/dncs_stop_probe"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="停止探针" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="8dp"
+        android:layout_weight="1"
+        android:background="@android:color/black">
+
+        <TextView
+            android:id="@+id/dncs_probe_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="10dp"
+            android:textColor="@android:color/white"
+            android:textIsSelectable="true"
+            android:typeface="monospace" />
+    </ScrollView>
+</LinearLayout>

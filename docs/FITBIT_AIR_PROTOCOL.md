@@ -51,11 +51,11 @@ One pattern group is one complete toggle/restore primitive. Multiple groups are 
 
 Actual perceived timing also includes BLE/CoAP response latency. Patterns therefore require device testing and are not real-time waveforms.
 
-## Connection ownership and v10014 time-sharing
+## Connection ownership and failed v10014 time-sharing assumption
 
 Interoperability testing indicates that Fitbit Air accepts only one active Gattlink/DTLS owner. A persistent bridge connection therefore prevents Google Health from connecting, and vice versa.
 
-v10014 changes the notification path to:
+v10014 attempted this notification path:
 
 ```text
 notification listener (disconnected)
@@ -67,4 +67,40 @@ notification listener (disconnected)
   -> stop the foreground task
 ```
 
-The task makes at most three attempts. The scan and connection timeouts deliberately bound how long the bridge competes with Google Health. This time-sharing behavior is pending device validation.
+Device validation disproved the assumption behind this design. Closing the
+Google Health activity does not stop its companion-device background service.
+Google Health keeps the Air link, the Air does not advertise for the bridge,
+and all three bounded attempts can expire before a pattern is executed.
+
+The Android BLE API does not expose another application's `BluetoothGatt` or
+Golden Gate/DTLS session, so a normal third-party APK cannot directly reuse the
+connection owned by Google Health.
+
+## DNCS coexistence probe (v10015)
+
+The Google Health APK declares a phone-side Fitbit Device Notification Center
+Service (DNCS) GATT server. It uses these UUIDs:
+
+| Attribute | UUID |
+|---|---|
+| Service | `16bcfd00-253f-c348-e831-0db3e334d580` |
+| Control Point | `16bcfd01-253f-c348-e831-0db3e334d580` |
+| Notification Source | `16bcfd02-253f-c348-e831-0db3e334d580` |
+| Data Source | `16bcfd03-253f-c348-e831-0db3e334d580` |
+| Location Status | `16bcfd04-253f-c348-e831-0db3e334d580` |
+
+The Notification Source record is eight bytes:
+
+```text
+event(1), flags(1), category(1), categoryCount(1), uidLE(4)
+```
+
+v10015 adds a diagnostic local GATT server using this layout. It does not scan
+for, connect to, disconnect from, or change settings on Air. It records whether
+an Air already connected by Google Health discovers or subscribes to the second
+DNCS service instance. A test notification can only be sent after a real CCCD
+subscription is observed.
+
+This is an experiment, not a claimed notification transport. The decisive
+device result is whether Air produces DNCS read/write/CCCD callbacks while
+Google Health remains connected.
