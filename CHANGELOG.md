@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.0.10016 - 2026-08-12
+
+- Confirm that a second app-side GATT server joins the physical Air connection already owned by Google Health.
+- Add an explicit one-time server-link disconnect while retaining the probe's DNCS service registration.
+- Let Google Health reconnect Air so the device can perform service discovery with the probe already present.
+
+The reconnect action is manual and only intended when no CCCD subscription appears after waiting 30 seconds.
+
 ## 0.0.10015 - 2026-08-12
 
 - Record the device-verified failure of v10014 time-sharing: Google Health keeps its companion-device connection after its UI is closed.

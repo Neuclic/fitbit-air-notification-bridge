@@ -34,18 +34,21 @@ import java.util.concurrent.atomic.AtomicInteger
 class AirDncsProbeActivity : AppCompatActivity() {
     private lateinit var status: TextView
     private lateinit var sendButton: Button
+    private lateinit var reconnectButton: Button
     private val logLines = CopyOnWriteArrayList<String>()
     private val uid = AtomicInteger((System.currentTimeMillis() and 0x7fffffff).toInt())
 
     private var gattServer: BluetoothGattServer? = null
     private var notificationSource: BluetoothGattCharacteristic? = null
     private var subscribedDevice: BluetoothDevice? = null
+    private var serverLinkedDevice: BluetoothDevice? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.a_dncs_probe)
         status = ActivityCompat.requireViewById(this, R.id.dncs_probe_status)
         sendButton = ActivityCompat.requireViewById(this, R.id.dncs_send_test)
+        reconnectButton = ActivityCompat.requireViewById(this, R.id.dncs_reconnect_once)
 
         ActivityCompat.requireViewById<Button>(this, R.id.dncs_refresh_links).setOnClickListener {
             refreshSystemLinks()
@@ -54,6 +57,7 @@ class AirDncsProbeActivity : AppCompatActivity() {
             startProbe()
         }
         sendButton.setOnClickListener { sendTestNotification() }
+        reconnectButton.setOnClickListener { reconnectOnce() }
         ActivityCompat.requireViewById<Button>(this, R.id.dncs_stop_probe).setOnClickListener {
             stopProbe("用户停止探针")
         }
@@ -118,8 +122,23 @@ class AirDncsProbeActivity : AppCompatActivity() {
         gattServer = null
         notificationSource = null
         subscribedDevice = null
+        serverLinkedDevice = null
         sendButton.isEnabled = false
+        reconnectButton.isEnabled = false
         reason?.let(::append)
+    }
+
+    private fun reconnectOnce() {
+        val server = gattServer
+        val device = serverLinkedDevice
+        if (server == null || device == null) {
+            append("当前没有可重连的 Air GATT Server 链路。")
+            return
+        }
+        reconnectButton.isEnabled = false
+        append("请求断开一次 ${deviceLabel(device)}；保持探针服务注册，等待 Google Health 自动重连…")
+        runCatching { server.cancelConnection(device) }
+            .onFailure { append("断开请求失败:${it.javaClass.simpleName}:${it.message}") }
     }
 
     private fun sendTestNotification() {
@@ -188,6 +207,15 @@ class AirDncsProbeActivity : AppCompatActivity() {
 
         override fun onConnectionStateChange(device: BluetoothDevice, statusCode: Int, newState: Int) {
             append("server link ${deviceLabel(device)} status=$statusCode state=${stateName(newState)}")
+            serverLinkedDevice = if (newState == BluetoothProfile.STATE_CONNECTED) device else null
+            if (newState != BluetoothProfile.STATE_CONNECTED) subscribedDevice = null
+            runOnUiThread {
+                reconnectButton.isEnabled = newState == BluetoothProfile.STATE_CONNECTED
+                if (newState != BluetoothProfile.STATE_CONNECTED) sendButton.isEnabled = false
+            }
+            if (newState == BluetoothProfile.STATE_CONNECTED) {
+                append("链路已恢复；等待 Air 重新发现 DNCS 并写入 CCCD…")
+            }
         }
 
         override fun onMtuChanged(device: BluetoothDevice, mtu: Int) {

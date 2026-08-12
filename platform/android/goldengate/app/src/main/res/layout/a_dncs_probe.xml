@@ -16,7 +16,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
-        android:text="保持 Google Health 正常运行。先刷新系统连接，再启动探针；只有观察到 Air 订阅后，测试发送按钮才会启用。" />
+        android:text="保持 Google Health 正常运行。先刷新系统连接，再启动探针并等待 30 秒；只有观察到 Air 订阅后，测试发送按钮才会启用。" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -37,6 +37,13 @@
             android:layout_weight="1"
             android:text="启动探针" />
     </LinearLayout>
+
+    <Button
+        android:id="@+id/dncs_reconnect_once"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:enabled="false"
+        android:text="仍未订阅：断开一次并等待 Google Health 重连" />
 
     <Button
         android:id="@+id/dncs_send_test"

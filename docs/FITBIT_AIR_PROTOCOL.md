@@ -104,3 +104,11 @@ subscription is observed.
 This is an experiment, not a claimed notification transport. The decisive
 device result is whether Air produces DNCS read/write/CCCD callbacks while
 Google Health remains connected.
+
+Initial v10015 device testing confirmed that the probe receives a GATT Server
+`CONNECTED` callback for the same Air link owned by Google Health and that the
+duplicate DNCS service is accepted with status 0. No CCCD callback was visible
+in the first second after registration. v10016 therefore adds a manual,
+one-time `BluetoothGattServer.cancelConnection` test: the probe keeps its DNCS
+service registered while Google Health reconnects Air, allowing service
+discovery to begin with both server instances already present.

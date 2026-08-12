@@ -46,8 +46,9 @@ com.whatsapp=long_gap
 1. Install the app and grant Nearby devices/Bluetooth access.
 2. Leave Google Health running and open **DNCS coexistence probe**.
 3. Refresh system links, then start the probe.
-4. Save a screenshot of the log. The test sender is enabled only after a Notification Source `CCCD ... enabled=true` callback.
-5. The exclusive notification-rule and pattern path remains available for diagnostics, but is expected to fail while Google Health owns Air.
+4. Wait 30 seconds. If no CCCD subscription appears, use the one-time disconnect button and let Google Health reconnect while the probe DNCS service remains registered.
+5. Save a screenshot of the log. The test sender is enabled only after a Notification Source `CCCD ... enabled=true` callback.
+6. The exclusive notification-rule and pattern path remains available for diagnostics, but is expected to fail while Google Health owns Air.
 
 ## Privacy and security
 

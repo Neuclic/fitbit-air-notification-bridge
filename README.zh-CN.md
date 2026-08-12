@@ -44,8 +44,9 @@ com.whatsapp=long_gap
 1. 安装应用并允许附近设备/蓝牙权限。
 2. 保持 Google Health 正常运行，打开“DNCS 共存探针”。
 3. 先点击“刷新连接”，再点击“启动探针”。
-4. 截图保存探针日志；只有出现 Notification Source 的 `CCCD ... enabled=true` 时，测试发送按钮才会启用。
-5. 独占连接的通知规则与 pattern 功能仍保留用于诊断，但 Google Health 未被强制停止时预计无法连接。
+4. 等待 30 秒；若仍未出现 CCCD 订阅，可点击一次“断开并等待 Google Health 重连”。该操作不强制停止 Google Health，并保留探针 DNCS 服务。
+5. 截图保存探针日志；只有出现 Notification Source 的 `CCCD ... enabled=true` 时，测试发送按钮才会启用。
+6. 独占连接的通知规则与 pattern 功能仍保留用于诊断，但 Google Health 未被强制停止时预计无法连接。
 
 ## 隐私和安全
 
