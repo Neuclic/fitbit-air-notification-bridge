@@ -1,0 +1,71 @@
+name: Google Health 5.05 non-root static checks
+
+on:
+  push:
+    branches:
+      - research/google-health-505-nonroot
+    paths:
+      - "research/google-health-505-nonroot/**"
+      - ".github/workflows/google-health-505-nonroot-static.yml"
+  pull_request:
+    paths:
+      - "research/google-health-505-nonroot/**"
+      - ".github/workflows/google-health-505-nonroot-static.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  static-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Python syntax
+        run: |
+          python -m py_compile research/google-health-505-nonroot/tools/*.py
+
+      - name: Frida probe JavaScript syntax
+        run: |
+          node --check research/google-health-505-nonroot/frida/gh505_probe.js
+
+      - name: Compile wrapper against compile-only stubs
+        run: |
+          set -euxo pipefail
+          ROOT=research/google-health-505-nonroot
+          mkdir -p /tmp/fba-stubs /tmp/fba-wrapper
+          javac -source 8 -target 8 -encoding UTF-8 \
+            -d /tmp/fba-stubs \
+            "$ROOT/wrapper-stubs/android/app/Application.java" \
+            "$ROOT/wrapper-stubs/com/fitbit/FitbitRoot_Application.java"
+          javac -source 8 -target 8 -encoding UTF-8 \
+            -classpath /tmp/fba-stubs \
+            -d /tmp/fba-wrapper \
+            "$ROOT/wrapper-src/com/fitbit/FitbitHook_Application.java"
+          test -f /tmp/fba-wrapper/com/fitbit/FitbitHook_Application.class
+
+      - name: Confirm no proprietary or private binary material is tracked
+        run: |
+          set -euxo pipefail
+          ROOT=research/google-health-505-nonroot
+          if find "$ROOT" -type f \
+            \( -name '*.apk' -o -name '*.apkm' -o -name '*.jks' -o -name '*.keystore' \
+               -o -name '*.xz' -o \( -name '*.so' ! -name '*.config.so' \) \) \
+            | grep -q .; then
+            echo "Proprietary APK, Gadget binary, or signing material is tracked" >&2
+            exit 1
+          fi
