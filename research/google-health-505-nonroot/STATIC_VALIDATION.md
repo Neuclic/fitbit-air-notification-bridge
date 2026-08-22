@@ -129,13 +129,35 @@ Application.getProcessName() == "com.fitbit.FitbitMobile"
 It does not load Gadget in `:primes_lifeboat`, preventing two app processes from competing for the
 same localhost listener port.
 
+## Account-link callback evidence
+
+The exact 5.05 manifest contains this exported account-link callback:
+
+```text
+com.google.android.libraries.accountlinking.activity.AccountLinkingActivity
+```
+
+with two verified HTTPS intent filters:
+
+```text
+https://oauth-redirect.googleusercontent.com/a/com.fitbit.FitbitMobile
+https://oauth-redirect.googleusercontent.com/fitbit_oauth2redirect
+```
+
+A research signature cannot satisfy the production `assetlinks.json` certificate fingerprint, so
+automatic App Link verification is expected to fail. Android nevertheless permits the user to
+explicitly enable supported-link handling for an app, and that user choice takes precedence over a
+failed automatic verification. This makes a browser callback technically testable without Root.
+It does not prove that Google Account Linking, Google Play services, Play Integrity or Fitbit's
+server will accept the research certificate after the callback reaches the app.
+
 ## What has not yet been validated
 
 The following require the user's physical, non-root phone and cannot be established by static APK
 analysis:
 
 - Whether a research-signed Google Health 5.05 completes Google/Fitbit account sign-in.
-- Whether Android App Links for the OAuth redirect need a manual user override.
+- Whether enabling the two account-link callback paths under **Open by default** is sufficient.
 - Whether Google or Fitbit enforces Play Integrity or the original signing certificate on this
   application path.
 - Whether Fitbit Air can be paired/restored under the research signature.
