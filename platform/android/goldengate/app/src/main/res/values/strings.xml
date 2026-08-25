@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Fitbit Air Notification Bridge v10020</string>
+    <string name="app_name">Fitbit Air Notification Bridge v10022</string>
     <string name="disconnect">Disconnect</string>
     <string name="connectCentralMode">Connect</string>
     <string name="gg_devices">Fitbit Air devices</string>
@@ -19,8 +19,12 @@
 
     <string name="link_controller_setup">Link Controller Setup</string>
     <string name="title_activity_scan">扫描 Fitbit Air</string>
-    <string name="title_activity_coap">Air Notification Bridge v10020 Diagnostics</string>
+    <string name="title_activity_coap">Air Notification Bridge v10022 Protocol Probe</string>
     <string name="title_activity_blast">Blast</string>
+    <string name="switchboard_probe_check">1/2 只读直查两个通知路径</string>
+    <string name="switchboard_probe_send">2/2 手动发送官方格式通知并删除</string>
+    <string name="switchboard_probe_recheck">重新只读直查两个通知路径</string>
+    <string name="open_switchboard_protocol_probe">打开 v10022 Switchboard 协议探针</string>
 
     <string name="scan_item_name">Name: %s</string>
     <string name="scan_item_address">Address: %s</string>

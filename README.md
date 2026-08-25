@@ -8,6 +8,12 @@ The project is based on Fitbit's Apache-2.0-licensed [Golden Gate](https://githu
 
 > **Alpha software.** The protocol has been validated on one Fitbit Air. It is not an official Fitbit or Google product. Do not use it for medical, emergency, or safety-critical alerts.
 
+> **Research status — frozen on 2026-08-25.** Under the accepted stock/no-root
+> boundary, an independent Bridge session cannot both send an authorized Air
+> notification and preserve Google Health synchronization. The diagnostic builds
+> remain as evidence, but this connection direction has no accepted next device
+> experiment.
+
 ## Current capabilities
 
 - Connect to Fitbit Air over Golden Gate/Gattlink.
@@ -22,6 +28,7 @@ The project is based on Fitbit's Apache-2.0-licensed [Golden Gate](https://githu
 - Retain a DNCS negative-control probe that reproduces successful duplicate-service registration without an Air subscription or haptic.
 - Use a scan-free known-address GATT client while Google Health keeps the system BLE link.
 - In v10020, retain the exact stage/error of every connection attempt and offer a user-tapped Google Health task restart after the haptic.
+- In the v10022 research build, expose a foreground-only Switchboard probe only after direct no-payload GETs provide fail-closed evidence for both known create and cleanup endpoints.
 
 Example rules:
 
@@ -42,6 +49,10 @@ com.whatsapp=long_gap
 - v10019's Link Controller request returned locally, but device testing observed `systemGatt=true/true` and `sawDisconnect=false`; Google Health still could not sync until its UI task was closed and reopened. Automatic handoff from a stock unprivileged APK is therefore rejected.
 - v10020's Activity-task relaunch was also device-tested and Google Health still returned error 3000. The stale session therefore survives a UI task restart and belongs to longer-lived background process state.
 - The first v10020 attempt timed out specifically at `Gattlink/DTLS` while both system and local GATT were connected; the second attempt succeeded. This is consistent with protocol-session takeover, not a local Bluetooth initialization delay.
+- Static analysis of Google Health 5.06.1 identifies its active notification transport as Mobile Data/Switchboard (`POST sb/records`, with `POST sb/delete-records` cleanup), while its older `sendSecureAppNotification` and `sendUnsecuredAppNotification` methods have no release implementation. The APK alone does not establish whether Air's live device model or firmware exposes that transport.
+- v10021 device testing reached the BOOTSTRAP DTLS session, then received `4.04` from `GET /.well-known/core`; its safety gate remained false and no record was written. This disproves only the directory-discovery prerequisite, not the two known endpoints: 5.06.1 directly calls them without discovery.
+- v10022 proved that both Switchboard paths exist, but its one bounded `POST sb/records` returned `4.01 Unauthorized` under `PSK=BOOTSTRAP`, produced no haptic, and Google Health still reported error 3000 after disconnect. The create step failed, so no delete request ran.
+- Google Health 5.06.1 registers a Mobile Data DTLS resolver backed by primary/secondary AES keys downloaded through its authenticated internal device client and stored in its app-private keystore. The public Google Health paired-device resource exposes only `get`/`list` metadata, not command sessions or DTLS keys. The independent bridge path therefore has no accepted no-root next write experiment.
 - Privilege-assisted force-stop/relaunch (Shizuku/root/Accessibility) and manual Bridge/Health ownership switching are explicitly outside the accepted product design.
 - Only `arm64-v8a` is built at present.
 - A pattern is composed of verified **toggle/restore haptic groups**. It is not arbitrary motor waveform control.
@@ -52,8 +63,8 @@ com.whatsapp=long_gap
 
 1. Install the app and grant Nearby devices/Bluetooth access.
 2. Leave Google Health running and confirm that it has connected Air.
-3. Use v10020 only as a diagnostic reproduction build. Its Health relaunch action has been disproved as a recovery mechanism.
-4. Do not enable notification rules for normal daily use: a successful bridge haptic can leave Google Health sync failing with error 3000.
+3. Use v10020-v10022 only as historical diagnostic builds. The v10022 Switchboard experiment is complete; do not repeat its second step. Its sole create attempt returned `4.01` and did not vibrate.
+4. Do not enable notification rules for normal daily use: establishing the bridge's competing DTLS session alone can leave Google Health sync failing with error 3000.
 5. The DNCS page remains only as a reproducible negative-control probe.
 
 The full blocker, evidence, rejected workarounds, and acceptance criteria are recorded in [Open problems](docs/OPEN_PROBLEMS.md).

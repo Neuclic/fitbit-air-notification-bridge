@@ -1,5 +1,76 @@
 # Changelog
 
+## 0.0.10022 - 2026-08-25
+
+- Record the v10021 device result: the BOOTSTRAP DTLS session completed, but
+  `GET /.well-known/core` returned `4.04` in 807 ms; the create/delete gate
+  remained false and no Switchboard record was written.
+- Verify from the 5.06.1 bytecode that Mobile Data protocol `0x6001` is
+  special-cased into `CoapNotificationRecordCreator` and
+  `CoapNotificationRecordRemover`, which directly POST to `sb/records` and
+  `sb/delete-records`. The official sender does not depend on resource discovery.
+- Replace the unsupported discovery precondition with one no-payload, no-retry
+  GET to each known endpoint. Qualify only `2.xx` or exact `4.05 Method Not
+  Allowed`; fail closed on `4.04`, timeout, or every other response.
+- Permit exactly one create attempt per successful read-only qualification,
+  then require the user to run the gate again. Preserve the two-second cleanup,
+  60-second TTL fallback, omitted haptic pattern, and no create retry.
+- Record the v10022 read-only device pass: both known paths qualified in 116 ms,
+  `GET sb/delete-records` returned exact `4.05`, the create/delete gate became
+  true, and no record had yet been written. The retained screenshot establishes
+  a qualifying create-path response but clips its exact response code.
+- Record the single bounded write result: `POST sb/records` returned `4.01
+  Unauthorized` in 529 ms, produced no haptic, and therefore did not enter the
+  delete step. After disconnecting the bridge, Google Health sync still returned
+  error 3000.
+- Trace 5.06.1 authorization to `MobileDataTlsKeyResolver`: Google Health fetches
+  primary/secondary AES device keys through its authenticated internal device
+  client, stores them in its app-private BKS file, and resolves `MD-*` DTLS
+  identities by key ID. No key material was read or retained, and the public
+  Google Health paired-device API exposes only `get`/`list` metadata.
+- Confirm that the Air Mobile Data Key GATT characteristic is a provisioning
+  channel, not a secret export: 5.06.1 reads it as a UTF-8 identity/state, while
+  key updates fetch bytes from the private provider and write them to Air.
+  Writing a replacement key would mutate device trust and is rejected.
+- Freeze the independent-session Bridge direction under the current product
+  constraints: stock no-root Android, Google Health remaining usable, and no
+  manual ownership switching. Do not build another payload/key/rekey probe.
+  Reopen implementation research only if an official device-command API or an
+  ordinary-app-callable route into Google Health's existing authorized session
+  is established first.
+
+This release closes the bridge-owned Gattlink/DTLS direction as a product path.
+It remains historical protocol evidence; it does not resolve the Google Health
+error-3000 coexistence blocker and must not be used for daily notifications.
+
+## 0.0.10021 - 2026-08-25
+
+- Record the Google Health 5.06.1 Mobile Data/Switchboard notification path and
+  its separate notification-setting and Switchboard-specification gates.
+- Add a clean-room encoder for one immediate notification record plus its root
+  delete command, with independent protobuf-structure unit tests.
+- Require a successful read-only `/.well-known/core` response advertising both
+  `sb/records` and `sb/delete-records` before enabling the manual write step.
+- Add an explicit Setup-screen entry that warns about error 3000, imports the
+  saved Air address without scanning, and opens the foreground CoAP probe.
+- Submit at most one record per click, omit an explicit haptic pattern, disable
+  create retries, delete after two seconds, and retain a 60-second TTL fallback.
+
+This build tests only the Air firmware primitive while Bridge owns the session.
+It does not reuse Google Health's DTLS session or resolve error 3000 coexistence.
+
+## 0.0.10020 - 2026-08-12
+
+- Preserve the stage and error from every known-address connection attempt
+  instead of replacing the first failure with an eventual retry success.
+- Increase the local known-device import settle window and label failures at
+  runtime initialization, GATT preparation, Gattlink/DTLS, or haptic execution.
+- After releasing the Bridge client, offer a visible user-tapped action that
+  clears and relaunches only Google Health's Activity task.
+
+Device testing showed that the Activity relaunch does not recover the stale
+Google Health protocol session; real sync still reports error 3000.
+
 ## 0.0.10019 - 2026-08-12
 
 - Record that v10018 can join the existing Android GATT link and execute the haptic, but a local-client-only release leaves Google Health unable to sync with error 3000.

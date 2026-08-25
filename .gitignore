@@ -50,6 +50,7 @@ node_modules
 .idea/
 local.properties
 *.apk
+*.apkm
 **/build/
 **/.cxx/
 **/.cxx-stale-*/

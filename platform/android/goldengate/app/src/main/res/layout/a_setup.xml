@@ -27,7 +27,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="v10020：记录每次尝试的真实失败阶段；震动后释放 Bridge，并提供一键重开 Google Health 来刷新旧 Gattlink/DTLS 会话。" />
+                android:text="v10022 研究版：v10021 实机已确认标准资源目录返回 4.04，且安全门正确阻止写入。新版第一步改为对两个官方 Switchboard 路径分别发送一次无 payload 的 GET；只有两者都返回 2.xx 或 4.05，才允许发送一次 60 秒 TTL 的最小测试记录。" />
 
             <Button
                 android:id="@+id/dncs_probe_button"
@@ -52,6 +52,13 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:text="测试 SINGLE（记录首次失败详情）" />
+
+            <Button
+                android:id="@+id/protocol_probe_button"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/open_switchboard_protocol_probe" />
 
             <Button
                 android:id="@+id/open_google_health_button"
@@ -118,7 +125,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
-                android:text="v10019 已证实 Link Controller 断链请求虽然返回完成，但 Air 没有发生真实物理断链（sawDisconnect=false）。普通 APK 无法直接销毁 Google Health 进程里的旧会话；v10020 的恢复动作会清空其现有 Activity task 并重新启动入口，但不会强行停止 Google Health 进程。" />
+                android:text="v10019 已证实 Link Controller 断链请求没有造成真实物理断链；v10020 已证实重开 Google Health Activity task 也不能恢复旧会话。v10022 只判断 Air 固件是否存在并接受官方格式的 Switchboard 通知入口，不会复用 Google Health 会话，也不代表错误 3000 已解决。" />
         </LinearLayout>
     </ScrollView>
 

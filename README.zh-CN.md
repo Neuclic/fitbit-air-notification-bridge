@@ -6,6 +6,10 @@
 
 > **当前为 Alpha 版本。** 协议只在一台 Fitbit Air 上完成实机验证。本项目与 Fitbit、Google 无隶属关系，不应作为医疗、紧急或安全关键提醒工具。
 
+> **研究状态——已于 2026-08-25 冻结。** 在普通无 Root 手机这一既定边界内，
+> 独立 Bridge 会话无法同时取得 Air 通知创建权限并保持 Google Health 正常同步。
+> 现有诊断版本只作为研究证据保留，这条连接方向目前没有可接受的下一次实机实验。
+
 ## 当前能力
 
 - 通过 Golden Gate/Gattlink 连接 Fitbit Air。
@@ -20,6 +24,7 @@
 - 保留 DNCS 排除性探针，用于复现实机上“重复服务注册成功但 Air 不订阅、不震动”的结果。
 - 使用不扫描的已知地址直连，让本应用的 GATT client 加入 Google Health 已维持的系统 BLE 链路。
 - v10020 会保留每一次连接尝试的真实阶段和错误，并在震动后提供由用户点击的 Google Health task 重启动作。
+- v10022 研究版增加前台手动 Switchboard 通知探针；只有对两个已知入口的无 payload GET 都取得严格的路径证据后，才开放第二次写入点击。
 
 配置示例：
 
@@ -40,6 +45,10 @@ com.whatsapp=long_gap
 - v10019 的 Link Controller 请求在本地返回完成，但实机为 `systemGatt=true/true`、`sawDisconnect=false`；Google Health 仍需正常关闭界面后重新打开才能同步。因此普通无特权 APK 的自动交还路径已判定不可行。
 - v10020 清空并重新启动 Google Health Activity task 后，实机同步仍报错误 3000。旧会话因此不属于界面 task，而存在于寿命更长的后台进程状态中。
 - v10020 第一次尝试是在系统和本地 GATT 均已连接时，于 `Gattlink/DTLS` 阶段超时；第二次才成功。这符合协议会话被夺取的特征，不是本地蓝牙初始化慢。
+- 对 Google Health 5.06.1 的静态核对表明，现役通知传输是 Mobile Data/Switchboard（`POST sb/records`，并用 `POST sb/delete-records` 清理）；旧的 `sendSecureAppNotification` 与 `sendUnsecuredAppNotification` 在该版本没有实际实现。仅凭 APK 仍不能证明 Air 的实时设备模型或固件开放了这条传输。
+- v10021 实机已建立 BOOTSTRAP DTLS 会话，但 `GET /.well-known/core` 返回 `4.04`；安全门保持 false，设备没有写入记录。它只证伪了“必须先靠标准目录发现资源”，不能证明两个已知入口不存在，因为 5.06.1 的官方发送器并不先做目录发现。
+- v10022 已证明两个 Switchboard 路径存在，但唯一一次受限 `POST sb/records` 在 `PSK=BOOTSTRAP` 会话下返回 `4.01 Unauthorized`，没有震动；Bridge 断开后 Google Health 仍报错误 3000。创建失败，因此没有执行删除请求。
+- Google Health 5.06.1 注册了 Mobile Data DTLS resolver：主/备 AES 设备密钥由其已认证的内部设备客户端下载并保存在应用私有 keystore。公开 Google Health paired-device 资源只有 `get`/`list` 元数据，没有命令会话或 DTLS 密钥。因此独立 Bridge 路线目前没有可接受的无 root 后续写入实验。
 - 项目明确不接受 Shizuku/root/无障碍等提权强停重启方案，也不接受用户在 Bridge 与 Google Health 间人工切换所有权作为正式工作流。
 - 当前只构建 `arm64-v8a`。
 - pattern 是由已经验证的“切换强度—恢复强度”短震组组成，不是任意马达波形控制。
@@ -50,8 +59,8 @@ com.whatsapp=long_gap
 
 1. 安装应用并允许附近设备/蓝牙权限。
 2. 保持 Google Health 正常运行，并确认它已经连接 Air。
-3. v10020 只应作为诊断复现版本；它的 Google Health 重启动作已经被实机证伪。
-4. 不要在日常使用中启用通知规则：Bridge 震动成功后可能导致 Google Health 持续报错误 3000。
+3. v10020-v10022 只应作为历史诊断版本。v10022 Switchboard 实验已经完成，不要重复第二步；唯一一次创建返回 `4.01`，没有震动。
+4. 不要在日常使用中启用通知规则：仅建立 Bridge 的竞争 DTLS 会话，就可能让 Google Health 持续报错误 3000。
 5. DNCS 页面只保留用于复现已经确认的负面结果。
 
 完整阻塞问题、实机证据、明确放弃的绕行方案和验收条件见 [未解决问题](docs/OPEN_PROBLEMS.zh-CN.md)。

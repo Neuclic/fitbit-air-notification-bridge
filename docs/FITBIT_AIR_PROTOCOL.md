@@ -199,3 +199,208 @@ is therefore insufficient; the stale protocol state survives in Google
 Health's longer-lived background process. Privilege-assisted force-stop and
 manual ownership switching have both been rejected as product workflows. See
 `docs/OPEN_PROBLEMS.md` for the current blocker and exit criteria.
+
+## Google Health 5.06.1 Switchboard notification path
+
+Read-only inspection of the exact 5.06.1 artifact, followed by an independent
+encoder implementation, identifies a different firmware-side notification
+primitive from the DNCS and haptic-setting probes:
+
+```text
+device notification
+  -> Mobile Data protocol 0x6001
+  -> SwitchboardNotificationRequest(commandId, record)
+  -> CREATE: POST sb/records
+  -> DELETE: POST sb/delete-records
+```
+
+The older `GoldenGateCommandHandler.sendSecureAppNotification` and
+`sendUnsecuredAppNotification` methods delegate to an unimplemented default in
+this release. They are not the active path.
+
+The protobuf types bundled in 5.06.1 establish the following record shape
+without requiring a captured owner payload:
+
+- record version `0.4.10`;
+- root and child IDs in the mobile `10xx...` fixed32 namespace;
+- an immediate scheduler configuration containing event `0x30` and the popup
+  expression ID as its context;
+- a POSIX-timestamp TTL configuration;
+- a notification-common expression containing app metadata and text;
+- a popup expression referencing that common expression;
+- a repeated uint32 root ID in the delete command.
+
+The normal builder leaves `haptic_pattern` absent, so the first interoperability
+probe also omits it and lets firmware select its default notification behavior.
+No account, device key, owner identifier, or captured notification payload is
+embedded in the encoder or tests.
+
+### Device-model gating visible in 5.06.1
+
+Google Health keeps three relevant facts separate:
+
+1. `supportsNotifications` is derived from whether the server tracker settings
+   contain `notificationTypes`.
+2. The current `notifications` setting is a nullable Boolean. The test-notification
+   selector chooses the first device for which this value is true.
+3. Switchboard support is the presence of a per-device
+   `SwitchboardSpecification`, including its supported Mobile Data protocols and
+   message-size limits.
+
+These tables are populated at runtime. Static inspection of the APK therefore
+cannot prove Air's current values, and a public paired-device feature list is not
+a substitute for the firmware resource result.
+
+### v10021 bounded manual probe
+
+The v10021 research build adds a foreground-only entry on the Setup screen. It
+shows the error-3000 warning, gives BitGatt a bounded chance to import Android's
+existing connection, and otherwise registers the saved Air address without a
+scan before opening the CoAP diagnostics activity. The actual protocol test is
+still two-click:
+
+1. `GET /.well-known/core` with no retransmission. The write step remains locked
+   unless both `/sb/records` and `/sb/delete-records` are advertised in a
+   successful response.
+2. A second explicit click creates one minimal official-shaped notification,
+   waits two seconds, then deletes its root record. Creation is never retried,
+   and a 60-second TTL is the cleanup fallback if the activity or link ends.
+
+### v10021 device result and corrected gate
+
+The device test reached a BOOTSTRAP DTLS session, then returned `4.04` to
+`GET /.well-known/core` in 807 ms. No `sb/*` path was parsed, the create/delete
+gate remained false, and the build did not write a record. This is a valid safe
+negative result for the discovery assumption only. It does **not** show that
+`sb/records` or `sb/delete-records` is absent.
+
+A second bytecode pass established the exact lower call chain:
+
+```text
+MobileDataCommandsHandler.writeMobileData(..., 0x6001, ...)
+  -> NotificationSenderCommandHandler.send(...)
+  -> CoapNotificationRecordCreator.create(record)
+       -> POST "sb/records"
+  -> CoapNotificationRecordRemover.remove(ids)
+       -> POST "sb/delete-records"
+```
+
+Both helpers build requests directly on the device's mapped CoAP endpoint; the
+official path has no preceding `/.well-known/core` request. Mobile Data
+`0x6001` is therefore the app-level dispatch ID, while the final device requests
+are ordinary CoAP requests on the current Golden Gate session.
+
+v10022 replaces directory discovery with two direct, read-only method probes:
+
+1. send one no-payload, no-retry `GET sb/records`;
+2. send one no-payload, no-retry `GET sb/delete-records`;
+3. qualify each path only on `2.xx` or exact `4.05 Method Not Allowed`;
+4. fail closed on `4.04`, timeout, or any other response;
+5. allow exactly one manual create attempt per successful two-path gate, then
+   require qualification again.
+
+`4.05` is useful here because it distinguishes a known POST-only resource from
+an unknown path without changing device state. A successful GET is also
+read-only evidence; its body is consumed but never displayed or persisted. The
+gate is intentionally conservative: some firmware routers could still answer
+`4.04` for a method mismatch, which would produce a false negative rather than
+unlock a write without enough evidence.
+
+### v10022 read-only device result
+
+The direct gate passed on the same test Air while the bridge owned a BOOTSTRAP
+DTLS session. Both path probes completed in 116 ms and reported path evidence;
+the visible cleanup result was `GET sb/delete-records -> 4.05`, and the UI moved
+to the explicit `2/2` write step with `direct create+delete gate=true`. The
+retained screenshot clips the create path's exact response code, so the supported
+claim is only that it was one of the gate's accepted values (`2.xx` or `4.05`).
+No record had been written at this point.
+
+This establishes that Air's CoAP router contains both known Switchboard paths on
+the bridge-owned session. It does not yet establish that `POST sb/records`
+accepts the independently encoded record, that a record produces a haptic, or
+that Google Health can continue syncing afterward.
+
+### v10022 write result
+
+The user then invoked the explicit second step exactly once. `POST sb/records`
+returned `4.01 Unauthorized` in 529 ms. Air did not vibrate. Because the create
+response was not `2.xx`, the probe stopped before its timer and did not send
+`POST sb/delete-records`; the displayed TTL text was a generic failure fallback,
+not evidence that a record had been created. After the bridge disconnected,
+Google Health manual sync returned error 3000.
+
+This result establishes all of the following on the tested BOOTSTRAP session:
+
+- the two Switchboard paths are registered;
+- read-only method probing is permitted;
+- creating this official-shaped record is not authorized;
+- no haptic is produced on rejection;
+- merely taking the second Gattlink/DTLS session still invalidates Google
+  Health's usable session.
+
+### Google Health 5.06.1 secure-key boundary
+
+The authorization re-audit found a separate production DTLS identity chain in
+5.06.1:
+
+```text
+TlsKeyResolverRegistry
+  -> MobileDataTlsKeyResolver
+  -> MD-{key-id}-{expiration} identity
+  -> MobileDataKeyProvider
+  -> MobileDataKeyManager
+  -> primaryKey / secondaryKey AES secrets
+```
+
+The manager downloads the two keys and their IDs through Google Health's
+authenticated internal device client under the device `keys` route. It Base64
+decodes them, stores them as AES `SecretKey` entries in a BKS file opened through
+the app's private `Context`, and resolves a requested Mobile Data identity by
+key ID. No actual key, account token, device identifier, or private response was
+read or retained during this audit.
+
+The Mobile Data Key GATT characteristic does not provide a key-extraction
+shortcut. In 5.06.1, its read path converts the returned bytes to a UTF-8 string,
+consistent with the current key identity/state. The update path takes a key ID,
+loads the corresponding secret bytes from the private provider, and writes those
+bytes to the same GATT resource. Directionally, Google Health provisions Air;
+Air does not export the server-provided AES secret through this read path.
+
+Provisioning an arbitrary replacement key from the bridge would modify Air's
+trust state and could rotate or displace the key used by Google Health. It would
+not reuse Google Health's session, and it conflicts with both the no-disruption
+boundary and the observed error-3000 blocker. That experiment is explicitly
+rejected.
+
+This makes secure DTLS identity the strongest explanation for the contrast
+between BOOTSTRAP-accessible settings/read-only paths and the Switchboard
+`4.01`. It remains an inference because the firmware authorization table is not
+available; a device feature/entitlement gate could also contribute.
+
+The current public [Google Health paired-device resource](https://developers.google.com/health/reference/rest/v4/users.pairedDevices)
+provides only `get` and `list`, with output-only device metadata and feature
+strings under `googlehealth.settings.readonly`. It exposes neither device keys
+nor a command/session operation. Consequently, a stock third-party app cannot
+legitimately obtain Google Health's Mobile Data key or attach to its existing
+DTLS session through that API.
+
+No further independent-session Switchboard write should be attempted. A next
+implementation experiment requires a documented ordinary-app API/IPC that
+reaches Google Health's existing authorized handler, or an official device
+command API. Neither is currently established.
+
+The result must be interpreted narrowly:
+
+| Device result | Supported conclusion |
+|---|---|
+| Either direct GET is `4.04`, errors, or times out | v10022 has insufficient path evidence and performs no write. |
+| Both direct GETs are `2.xx` or `4.05` | Both known paths have read-only existence evidence; no record has yet been written. |
+| Create returns `4.01` under BOOTSTRAP | The path exists, but this session is not authorized to create the record. |
+| Create/delete succeed, no haptic | The record path alone is insufficient to produce an Air haptic. |
+| Create/delete succeed and Air vibrates | Air accepts a Switchboard notification primitive while Bridge owns the session. |
+
+None of these outcomes proves coexistence with Google Health. This probe still
+uses the bridge's own Gattlink/DTLS session and must not be wired to the Android
+notification listener unless a separate stock, unprivileged same-session route
+passes the P0 exit criteria.

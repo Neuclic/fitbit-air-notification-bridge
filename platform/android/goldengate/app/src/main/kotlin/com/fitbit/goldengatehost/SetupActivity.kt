@@ -3,6 +3,9 @@
 
 package com.fitbit.goldengatehost
 
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
@@ -12,10 +15,19 @@ import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AlertDialog
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationManagerCompat
+import com.fitbit.bluetooth.fbgatt.FitbitBluetoothDevice
+import com.fitbit.bluetooth.fbgatt.FitbitGatt
+import com.fitbit.bluetooth.fbgatt.GattConnection
+import com.fitbit.goldengate.bindings.stack.DtlsSocketNetifGattlink
+import com.fitbit.goldengate.bt.DEFAULT_CLIENT_ADDRESS
+import com.fitbit.goldengate.bt.DEFAULT_SERVER_ADDRESS
+import com.fitbit.goldengatehost.scan.EXTRA_DEVICE
 import com.fitbit.goldengatehost.scan.EXTRA_SAVE_ONLY
 import com.fitbit.goldengatehost.scan.ScanActivity
+import java.net.Inet4Address
 
 class SetupActivity : AppCompatActivity() {
     private val statusHandler = Handler(Looper.getMainLooper())
@@ -32,8 +44,11 @@ class SetupActivity : AppCompatActivity() {
     private lateinit var lastTaskStatus: TextView
     private lateinit var chooseDeviceButton: Button
     private lateinit var manualTestButton: Button
+    private lateinit var protocolProbeButton: Button
     private lateinit var openGoogleHealthButton: Button
     private lateinit var dncsProbeButton: Button
+    private var protocolProbeLaunch: Runnable? = null
+    private var protocolProbeLaunchInProgress = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -76,6 +91,29 @@ class SetupActivity : AppCompatActivity() {
             ).show()
             refreshStatus()
         }
+        protocolProbeButton.setOnClickListener {
+            val address = AirBridgeDeviceSettings.loadAddress(this)
+            if (address == null) {
+                Toast.makeText(this, "请先选择 Fitbit Air", Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+            if (!AirBluetoothPermissions.hasAll(this)) {
+                AirBluetoothPermissions.request(this, REQ_ID)
+                Toast.makeText(this, "请先允许附近设备/蓝牙权限", Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+            AlertDialog.Builder(this)
+                .setTitle("打开 v10022 协议探针？")
+                .setMessage(
+                    "这会建立 Bridge 自己的 Gattlink/DTLS 会话，仍可能使 Google Health " +
+                        "随后同步报错误 3000。进入页面后，Switchboard 第一次点击只会对两个" +
+                        "官方路径发送无 payload 的 GET；只有只读安全门通过后，第二次点击才会" +
+                        "写入一条 60 秒 TTL 的测试记录。"
+                )
+                .setNegativeButton("取消", null)
+                .setPositiveButton("继续") { _, _ -> prepareProtocolProbe(address) }
+                .show()
+        }
         openGoogleHealthButton.setOnClickListener {
             val opened = GoogleHealthRecovery.open(this)
             Toast.makeText(
@@ -101,6 +139,9 @@ class SetupActivity : AppCompatActivity() {
 
     override fun onPause() {
         statusHandler.removeCallbacks(statusRefresh)
+        protocolProbeLaunch?.let(statusHandler::removeCallbacks)
+        protocolProbeLaunch = null
+        protocolProbeLaunchInProgress = false
         super.onPause()
     }
 
@@ -112,8 +153,80 @@ class SetupActivity : AppCompatActivity() {
         lastTaskStatus = ActivityCompat.requireViewById(this, R.id.last_task_status)
         chooseDeviceButton = ActivityCompat.requireViewById(this, R.id.start_button)
         manualTestButton = ActivityCompat.requireViewById(this, R.id.manual_test_button)
+        protocolProbeButton = ActivityCompat.requireViewById(this, R.id.protocol_probe_button)
         openGoogleHealthButton = ActivityCompat.requireViewById(this, R.id.open_google_health_button)
         dncsProbeButton = ActivityCompat.requireViewById(this, R.id.dncs_probe_button)
+    }
+
+    /**
+     * Gives BitGatt a bounded chance to import Android's existing system connection, then falls
+     * back to registering the saved address exactly as the proven known-address probe does.
+     */
+    private fun prepareProtocolProbe(address: String) {
+        if (protocolProbeLaunchInProgress) return
+        protocolProbeLaunchInProgress = true
+        refreshStatus()
+
+        val preparation = runCatching {
+            AirBridgeRuntime.ensureInitialized(this)
+            val manager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+            val adapter: BluetoothAdapter = manager.adapter
+                ?: error("Bluetooth adapter unavailable")
+            check(adapter.isEnabled) { "Bluetooth is disabled" }
+            FitbitGatt.getInstance().addConnectedDevices()
+            adapter
+        }
+        preparation.onFailure {
+            protocolProbeLaunchInProgress = false
+            refreshStatus()
+            Toast.makeText(
+                this,
+                "协议探针准备失败：${it.message ?: it.javaClass.simpleName}",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        Toast.makeText(this, "正在按已保存地址准备 Air，不执行扫描", Toast.LENGTH_SHORT).show()
+        val adapter = preparation.getOrThrow()
+        val launch = Runnable {
+            protocolProbeLaunch = null
+            protocolProbeLaunchInProgress = false
+            if (isFinishing || isDestroyed) return@Runnable
+
+            runCatching {
+                val fitbitGatt = FitbitGatt.getInstance()
+                val existing = fitbitGatt.getMatchingConnectionsForDeviceNames(null)
+                    .firstOrNull { it.device.address.equals(address, ignoreCase = true) }
+                val bluetoothDevice = existing?.device?.btDevice ?: adapter.getRemoteDevice(address)
+                if (existing == null) {
+                    val wrappedDevice = FitbitBluetoothDevice(bluetoothDevice)
+                    GattConnection(wrappedDevice, Looper.getMainLooper()).also {
+                        fitbitGatt.putConnectionIntoDevices(wrappedDevice, it)
+                    }
+                }
+                val stackConfig = DtlsSocketNetifGattlink(
+                    Inet4Address.getByName(DEFAULT_SERVER_ADDRESS) as Inet4Address,
+                    0,
+                    Inet4Address.getByName(DEFAULT_CLIENT_ADDRESS) as Inet4Address,
+                    0
+                )
+                startActivity(
+                    CoapActivity.getIntent(this)
+                        .putExtra(EXTRA_DEVICE, bluetoothDevice)
+                        .putExtra(EXTRA_STACK_CONFIG, stackConfig)
+                )
+            }.onFailure {
+                Toast.makeText(
+                    this,
+                    "无法打开协议探针：${it.message ?: it.javaClass.simpleName}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+            refreshStatus()
+        }
+        protocolProbeLaunch = launch
+        statusHandler.postDelayed(launch, PROTOCOL_PROBE_IMPORT_SETTLE_MILLIS)
     }
 
     private fun saveRules(): Boolean {
@@ -139,9 +252,12 @@ class SetupActivity : AppCompatActivity() {
         selectedDeviceStatus.text = "目标设备：${AirBridgeDeviceSettings.loadDeviceLabel(this)}"
         lastTaskStatus.text = "最近任务：${AirBridgeDeviceSettings.loadLastStatus(this)}"
         manualTestButton.isEnabled = AirBridgeDeviceSettings.loadAddress(this) != null
+        protocolProbeButton.isEnabled =
+            AirBridgeDeviceSettings.loadAddress(this) != null && !protocolProbeLaunchInProgress
     }
 
     companion object {
         private const val STATUS_REFRESH_MILLIS = 500L
+        private const val PROTOCOL_PROBE_IMPORT_SETTLE_MILLIS = 1_500L
     }
 }

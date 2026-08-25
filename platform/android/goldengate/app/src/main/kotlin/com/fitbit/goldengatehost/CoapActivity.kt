@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
+import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import androidx.core.app.ActivityCompat
@@ -38,6 +39,7 @@ import io.reactivex.Single
 import io.reactivex.android.schedulers.AndroidSchedulers
 import io.reactivex.schedulers.Schedulers
 import timber.log.Timber
+import java.security.SecureRandom
 import java.util.Calendar
 import java.util.Locale
 import java.util.UUID
@@ -50,8 +52,12 @@ class CoapActivity : AbstractHostActivity<CoapEndpoint>() {
     private lateinit var coapResponseTime: TextView
     private lateinit var editText: EditText
     private lateinit var rxText: TextView
+    private lateinit var switchboardProbe: Button
     @Volatile private var currentHapticsIntensity: Int? = null
     @Volatile private var hapticsOperationInProgress = false
+    @Volatile private var switchboardResourcesQualified = false
+    @Volatile private var switchboardOperationInProgress = false
+    private val switchboardIdRandom = SecureRandom()
 
     override fun getContentViewRes(): Int = R.layout.a_single_message
 
@@ -66,6 +72,7 @@ class CoapActivity : AbstractHostActivity<CoapEndpoint>() {
         coapResponseTime = ActivityCompat.requireViewById(this, R.id.coap_response_time)
         editText = ActivityCompat.requireViewById(this, R.id.edittext)
         rxText = ActivityCompat.requireViewById(this, R.id.rxtext)
+        switchboardProbe = ActivityCompat.requireViewById(this, R.id.switchboard_probe)
     }
 
     override fun getPeerBuilder(
@@ -91,6 +98,8 @@ class CoapActivity : AbstractHostActivity<CoapEndpoint>() {
     override fun onConnected(stackService: CoapEndpoint, stackConfig: StackConfig) {
         renderButtonText(stackConfig)
         editText.visibility = View.GONE
+        // A direct read-only endpoint result qualifies only the DTLS/CoAP session on which it ran.
+        switchboardResourcesQualified = false
 
         send.setOnClickListener {
             sendRequestTime = System.currentTimeMillis()
@@ -99,6 +108,16 @@ class CoapActivity : AbstractHostActivity<CoapEndpoint>() {
                 runToggleAndRestoreHapticsTest(stackService, intensity!!)
             } else {
                 runHapticsReadProbe(stackService)
+            }
+        }
+        switchboardProbe.visibility = View.VISIBLE
+        switchboardProbe.isEnabled = false
+        switchboardProbe.setText(R.string.switchboard_probe_check)
+        switchboardProbe.setOnClickListener {
+            if (switchboardResourcesQualified) {
+                runSwitchboardNotificationProbe(stackService)
+            } else {
+                runSwitchboardResourceProbe(stackService)
             }
         }
         sendRequestTime = System.currentTimeMillis()
@@ -121,6 +140,7 @@ class CoapActivity : AbstractHostActivity<CoapEndpoint>() {
      */
     private fun runHapticsReadProbe(stackService: CoapEndpoint) {
         send.isEnabled = false
+        switchboardProbe.isEnabled = false
         val body = AirDirectSettingsProtocol.encodeHapticsSettingsRequest()
         updateResponseMessage(
             "正在发送语义只读请求：PUT /settings\n" +
@@ -144,6 +164,7 @@ class CoapActivity : AbstractHostActivity<CoapEndpoint>() {
                 .subscribe(
                     { result ->
                         send.isEnabled = true
+                        switchboardProbe.isEnabled = true
                         val response = result.first
                         val responseBody = result.second
                         val intensity = runCatching {
@@ -169,6 +190,7 @@ class CoapActivity : AbstractHostActivity<CoapEndpoint>() {
                     },
                     { throwable ->
                         send.isEnabled = true
+                        switchboardProbe.isEnabled = true
                         updateResponseMessage(
                             "Haptics 只读探测异常：${throwable.javaClass.simpleName}: " +
                                 "${throwable.message ?: "no message"}\n未写入设置值，也没有发送闹钟。"
@@ -187,6 +209,7 @@ class CoapActivity : AbstractHostActivity<CoapEndpoint>() {
         if (hapticsOperationInProgress) return
         hapticsOperationInProgress = true
         send.isEnabled = false
+        switchboardProbe.isEnabled = false
         val originalName = AirDirectSettingsProtocol.hapticsIntensityName(intensity)
         val alternateIntensity = alternateHapticsIntensity(intensity)
         val alternateName = AirDirectSettingsProtocol.hapticsIntensityName(alternateIntensity)
@@ -224,6 +247,7 @@ class CoapActivity : AbstractHostActivity<CoapEndpoint>() {
                 .subscribe(
                     { result ->
                         send.isEnabled = true
+                        switchboardProbe.isEnabled = true
                         hapticsOperationInProgress = false
                         val verifiedIntensity = result.readResult.intensity
                         currentHapticsIntensity = verifiedIntensity
@@ -240,6 +264,7 @@ class CoapActivity : AbstractHostActivity<CoapEndpoint>() {
                     },
                     { throwable ->
                         send.isEnabled = true
+                        switchboardProbe.isEnabled = true
                         hapticsOperationInProgress = false
                         currentHapticsIntensity = null
                         send.text = "重新读取当前 Haptics 设置"
@@ -263,6 +288,7 @@ class CoapActivity : AbstractHostActivity<CoapEndpoint>() {
         if (hapticsOperationInProgress) return
         hapticsOperationInProgress = true
         send.isEnabled = false
+        switchboardProbe.isEnabled = false
         val originalName = AirDirectSettingsProtocol.hapticsIntensityName(intensity)
         val alternateIntensity = alternateHapticsIntensity(intensity)
         val alternateName = AirDirectSettingsProtocol.hapticsIntensityName(alternateIntensity)
@@ -300,6 +326,7 @@ class CoapActivity : AbstractHostActivity<CoapEndpoint>() {
                 .subscribe(
                     { result ->
                         send.isEnabled = true
+                        switchboardProbe.isEnabled = true
                         hapticsOperationInProgress = false
                         val verifiedIntensity = result.readResult.intensity
                         currentHapticsIntensity = verifiedIntensity
@@ -317,6 +344,7 @@ class CoapActivity : AbstractHostActivity<CoapEndpoint>() {
                     },
                     { throwable ->
                         send.isEnabled = true
+                        switchboardProbe.isEnabled = true
                         hapticsOperationInProgress = false
                         currentHapticsIntensity = null
                         send.text = "重新读取当前 Haptics 设置"
@@ -517,6 +545,210 @@ class CoapActivity : AbstractHostActivity<CoapEndpoint>() {
             }
     }
 
+    /**
+     * First half of the Switchboard probe. This is deliberately read-only and enables the write
+     * button only when both known official paths return success or Method Not Allowed to GET.
+     */
+    private fun runSwitchboardResourceProbe(stackService: CoapEndpoint) {
+        if (switchboardOperationInProgress || hapticsOperationInProgress) return
+        switchboardOperationInProgress = true
+        switchboardResourcesQualified = false
+        send.isEnabled = false
+        switchboardProbe.isEnabled = false
+        sendRequestTime = System.currentTimeMillis()
+        updateResponseMessage(
+            "第 1/2 步：依次 GET ${AirSwitchboardNotificationProtocol.CREATE_PATH} 与 " +
+                "${AirSwitchboardNotificationProtocol.DELETE_PATH}。\n" +
+                "只接受 2.xx 或 4.05（路径存在但 GET 不允许）；每个请求只发一次。\n" +
+                "本步不带 payload，不会创建或删除记录，也不会触发震动。"
+        )
+
+        disposeBag.add(
+            readOnlySwitchboardEndpointProbe(
+                stackService,
+                AirSwitchboardNotificationProtocol.CREATE_PATH
+            ).flatMap { createResult ->
+                readOnlySwitchboardEndpointProbe(
+                    stackService,
+                    AirSwitchboardNotificationProtocol.DELETE_PATH
+                ).map { deleteResult ->
+                    SwitchboardQualificationResult(createResult, deleteResult)
+                }
+            }
+                .subscribeOn(Schedulers.io())
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(
+                    { result ->
+                        switchboardOperationInProgress = false
+                        send.isEnabled = true
+                        val safePair = result.createResult.qualifies && result.deleteResult.qualifies
+                        switchboardResourcesQualified = safePair
+                        switchboardProbe.isEnabled = true
+                        switchboardProbe.setText(if (safePair) {
+                            R.string.switchboard_probe_send
+                        } else {
+                            R.string.switchboard_probe_recheck
+                        })
+                        updateResponseMessage(
+                            "GET ${result.createResult.path} -> " +
+                                "${formatCode(result.createResult.response)}，" +
+                                "路径证据=${result.createResult.qualifies}\n" +
+                                "GET ${result.deleteResult.path} -> " +
+                                "${formatCode(result.deleteResult.response)}，" +
+                                "路径证据=${result.deleteResult.qualifies}\n" +
+                                "direct create+delete 安全门=$safePair\n" +
+                                if (safePair) {
+                                    "尚未写入。再次点击才会发送一条 60 秒 TTL 的最小通知，并在 " +
+                                        "${SWITCHBOARD_DELETE_DELAY_MILLIS}ms 后删除。"
+                                } else {
+                                    "未开放发送按钮；本次没有写入设备。"
+                                }
+                        )
+                    },
+                    { throwable ->
+                        switchboardOperationInProgress = false
+                        send.isEnabled = true
+                        switchboardProbe.isEnabled = true
+                        switchboardProbe.setText(R.string.switchboard_probe_recheck)
+                        updateResponseMessage(
+                            "Switchboard 资源只读检查异常：${throwable.javaClass.simpleName}: " +
+                                "${throwable.message ?: "no message"}\n未写入设备。"
+                        )
+                    }
+                )
+        )
+    }
+
+    private fun readOnlySwitchboardEndpointProbe(
+        stackService: CoapEndpoint,
+        path: String
+    ): Single<SwitchboardEndpointProbeResult> {
+        val request = OutgoingRequestBuilder(path, Method.GET)
+            .expectSuccess(false)
+            .maxResendCount(0)
+            .build()
+        return stackService.responseFor(request)
+            .flatMap { response ->
+                // Consume but never display a body: this gate needs only the response code.
+                response.body.asData()
+                    .onErrorReturnItem(byteArrayOf())
+                    .map {
+                        SwitchboardEndpointProbeResult(
+                            path = path,
+                            response = response,
+                            qualifies = AirSwitchboardNotificationProtocol.qualifiesReadOnlyEndpointProbe(
+                                response.responseCode.responseClass.toInt(),
+                                response.responseCode.detail.toInt()
+                            )
+                        )
+                    }
+            }
+    }
+
+    /**
+     * Manual, foreground-only firmware interoperability probe. It never runs from the Android
+     * notification listener and does not claim coexistence with Google Health.
+     */
+    private fun runSwitchboardNotificationProbe(stackService: CoapEndpoint) {
+        if (!switchboardResourcesQualified || switchboardOperationInProgress || hapticsOperationInProgress) return
+        switchboardOperationInProgress = true
+        // One read-only qualification permits exactly one create attempt.
+        switchboardResourcesQualified = false
+        send.isEnabled = false
+        switchboardProbe.isEnabled = false
+        sendRequestTime = System.currentTimeMillis()
+
+        val nowSeconds = TimeUnit.MILLISECONDS.toSeconds(System.currentTimeMillis())
+        val idSeed = switchboardIdRandom.nextInt(SWITCHBOARD_ID_SEED_BOUND) + 1
+        val encoded = AirSwitchboardNotificationProtocol.encodeDefaultNotification(
+            idSeed = idSeed,
+            appId = packageName,
+            appName = "Fitbit Air Bridge",
+            title = "Notification probe",
+            content = "Google Health 5.06.1 Switchboard format",
+            timestampEpochSeconds = nowSeconds
+        )
+        updateResponseMessage(
+            "第 2/2 步：POST ${AirSwitchboardNotificationProtocol.CREATE_PATH}。\n" +
+                "record=${encoded.record.size}B，root=${encoded.unsignedRootId}，" +
+                "TTL=${AirSwitchboardNotificationProtocol.DEFAULT_TTL_SECONDS}s。\n" +
+                "未指定 hapticPattern：由固件选择默认通知震动；" +
+                "${SWITCHBOARD_DELETE_DELAY_MILLIS}ms 后自动清理根记录。"
+        )
+
+        disposeBag.add(
+            postSwitchboardRecord(stackService, encoded.record)
+                .flatMap { createResponse ->
+                    require(createResponse.responseCode.ok()) {
+                        "POST ${AirSwitchboardNotificationProtocol.CREATE_PATH} returned " +
+                            formatCode(createResponse)
+                    }
+                    Single.timer(SWITCHBOARD_DELETE_DELAY_MILLIS, TimeUnit.MILLISECONDS)
+                        .flatMap { postSwitchboardDelete(stackService, encoded.deleteCommand) }
+                        .map { deleteResponse ->
+                            require(deleteResponse.responseCode.ok()) {
+                                "POST ${AirSwitchboardNotificationProtocol.DELETE_PATH} returned " +
+                                    formatCode(deleteResponse)
+                            }
+                            SwitchboardProbeResult(createResponse, deleteResponse)
+                        }
+                }
+                .subscribeOn(Schedulers.io())
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(
+                    { result ->
+                        switchboardOperationInProgress = false
+                        send.isEnabled = true
+                        switchboardProbe.isEnabled = true
+                        switchboardProbe.setText(R.string.switchboard_probe_recheck)
+                        updateResponseMessage(
+                            "创建 -> ${formatCode(result.createResponse)}\n" +
+                                "删除 root=${encoded.unsignedRootId} -> ${formatCode(result.deleteResponse)}\n" +
+                                "请确认 Air 是否产生一次默认通知震动。\n" +
+                                "这只验证固件通知协议；当前独立 DTLS 会话仍不解决 Google Health 共存。"
+                        )
+                    },
+                    { throwable ->
+                        switchboardOperationInProgress = false
+                        send.isEnabled = true
+                        switchboardProbe.isEnabled = true
+                        switchboardProbe.setText(R.string.switchboard_probe_recheck)
+                        updateResponseMessage(
+                            "Switchboard 通知探测异常：${throwable.javaClass.simpleName}: " +
+                                "${throwable.message ?: "no message"}\n" +
+                                "root=${encoded.unsignedRootId}；若创建曾成功但删除失败，" +
+                                "记录应在 ${AirSwitchboardNotificationProtocol.DEFAULT_TTL_SECONDS}s TTL 后过期。\n" +
+                                "本入口不会自动重试创建，以免产生重复通知。"
+                        )
+                    }
+                )
+        )
+    }
+
+    private fun postSwitchboardRecord(
+        stackService: CoapEndpoint,
+        record: ByteArray
+    ): Single<IncomingResponse> {
+        val request = OutgoingRequestBuilder(AirSwitchboardNotificationProtocol.CREATE_PATH, Method.POST)
+            .expectSuccess(false)
+            .maxResendCount(0)
+            .body(record)
+            .build()
+        return stackService.responseFor(request)
+    }
+
+    private fun postSwitchboardDelete(
+        stackService: CoapEndpoint,
+        deleteCommand: ByteArray
+    ): Single<IncomingResponse> {
+        val request = OutgoingRequestBuilder(AirSwitchboardNotificationProtocol.DELETE_PATH, Method.POST)
+            .expectSuccess(false)
+            .maxResendCount(0)
+            .body(deleteCommand)
+            .build()
+        return stackService.responseFor(request)
+    }
+
     private fun runAlarmAutoDeleteTest(stackService: CoapEndpoint) {
         send.isEnabled = false
         updateResponseMessage("正在读取 Air 现有闹钟；读取失败时不会创建测试闹钟。")
@@ -677,6 +909,8 @@ class CoapActivity : AbstractHostActivity<CoapEndpoint>() {
         private const val FIND_ALARM_ATTEMPTS = 5
         private const val HAPTICS_RESTORE_DELAY_MILLIS = 800L
         private const val HAPTICS_RESTORE_RETRIES = 2
+        private const val SWITCHBOARD_DELETE_DELAY_MILLIS = 2_000L
+        private const val SWITCHBOARD_ID_SEED_BOUND = 0x3ffffffb
         private val READ_ONLY_PROBE_PATHS = listOf(
             "/.well-known/core",
             "/alarms",
@@ -710,6 +944,22 @@ class CoapActivity : AbstractHostActivity<CoapEndpoint>() {
         private data class NotificationPatternResult(
             val groupResponses: List<Pair<IncomingResponse, IncomingResponse>>,
             val readResult: HapticsReadResult
+        )
+
+        private data class SwitchboardEndpointProbeResult(
+            val path: String,
+            val response: IncomingResponse,
+            val qualifies: Boolean
+        )
+
+        private data class SwitchboardQualificationResult(
+            val createResult: SwitchboardEndpointProbeResult,
+            val deleteResult: SwitchboardEndpointProbeResult
+        )
+
+        private data class SwitchboardProbeResult(
+            val createResponse: IncomingResponse,
+            val deleteResponse: IncomingResponse
         )
 
         fun getIntent(context: Context): Intent {
