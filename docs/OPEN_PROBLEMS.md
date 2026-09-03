@@ -97,8 +97,24 @@ accepted boundary.
 The independent-session Switchboard path is closed as a product direction: it
 neither authorizes notification creation nor preserves Google Health sync. Do
 not continue payload retries or attempt to extract/reuse Google Health's private
-keys. P0 remains open only for an ordinary-app-callable existing-session route
-or an official command API.
+keys.
+
+A 2026-09-02 follow-up closed the two freeze reopen conditions against this
+same 5.06.1 build, without another device write. The public paired-device
+resource is still `get`/`list` metadata. The 5.06.1 manifest has no exported
+service, provider, or receiver that submits a Switchboard record or reaches
+`GoldenGateCommandHandler`. The only in-app notification broadcast is
+`exported=false`. Deeplinks only open UI. `POST 4.01` after `GET 4.05` matches
+Golden Gate's authenticated-vs-BOOTSTRAP CoAP group split, so a different
+payload cannot authorize the write.
+
+There is still no stock, unprivileged route into Google Health's existing Air
+session. The implementation follow-up is therefore the separate, explicitly
+non-product same-process experiment in
+`research/google-health-506-same-session/`: a research-signed copy of this
+exact 5.06.1 build that loads Frida Gadget in-process and reuses the live
+`GoldenGateCommandHandler`. That path is not an ordinary third-party APK and
+does not lift the product freeze.
 
 ### Research freeze decision — 2026-08-25
 

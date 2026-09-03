@@ -8,11 +8,11 @@ The project is based on Fitbit's Apache-2.0-licensed [Golden Gate](https://githu
 
 > **Alpha software.** The protocol has been validated on one Fitbit Air. It is not an official Fitbit or Google product. Do not use it for medical, emergency, or safety-critical alerts.
 
-> **Research status — frozen on 2026-08-25.** Under the accepted stock/no-root
-> boundary, an independent Bridge session cannot both send an authorized Air
-> notification and preserve Google Health synchronization. The diagnostic builds
-> remain as evidence, but this connection direction has no accepted next device
-> experiment.
+> **Research status — independent Bridge session frozen on 2026-08-25.** Under
+> the accepted stock/no-root product boundary, an independent Bridge session
+> cannot both send an authorized Air notification and preserve Google Health
+> synchronization. The next research experiment is the explicitly non-product
+> same-process path in [`research/google-health-506-same-session/`](research/google-health-506-same-session/README.md).
 
 ## Current capabilities
 
@@ -52,7 +52,7 @@ com.whatsapp=long_gap
 - Static analysis of Google Health 5.06.1 identifies its active notification transport as Mobile Data/Switchboard (`POST sb/records`, with `POST sb/delete-records` cleanup), while its older `sendSecureAppNotification` and `sendUnsecuredAppNotification` methods have no release implementation. The APK alone does not establish whether Air's live device model or firmware exposes that transport.
 - v10021 device testing reached the BOOTSTRAP DTLS session, then received `4.04` from `GET /.well-known/core`; its safety gate remained false and no record was written. This disproves only the directory-discovery prerequisite, not the two known endpoints: 5.06.1 directly calls them without discovery.
 - v10022 proved that both Switchboard paths exist, but its one bounded `POST sb/records` returned `4.01 Unauthorized` under `PSK=BOOTSTRAP`, produced no haptic, and Google Health still reported error 3000 after disconnect. The create step failed, so no delete request ran.
-- Google Health 5.06.1 registers a Mobile Data DTLS resolver backed by primary/secondary AES keys downloaded through its authenticated internal device client and stored in its app-private keystore. The public Google Health paired-device resource exposes only `get`/`list` metadata, not command sessions or DTLS keys. The independent bridge path therefore has no accepted no-root next write experiment.
+- Google Health 5.06.1 registers a Mobile Data DTLS resolver backed by primary/secondary AES keys downloaded through its authenticated internal device client and stored in its app-private keystore. The public Google Health paired-device resource exposes only `get`/`list` metadata, not command sessions or DTLS keys. The independent bridge path therefore has no accepted no-root next write experiment. A 2026-09-02 follow-up found no 5.06.1 exported IPC and no public command API that could enter Google Health's live Air session.
 - Privilege-assisted force-stop/relaunch (Shizuku/root/Accessibility) and manual Bridge/Health ownership switching are explicitly outside the accepted product design.
 - Only `arm64-v8a` is built at present.
 - A pattern is composed of verified **toggle/restore haptic groups**. It is not arbitrary motor waveform control.

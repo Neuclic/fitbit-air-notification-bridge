@@ -1,0 +1,11 @@
+out-*/
+*.apkm
+*.apk
+*.jks
+*.keystore
+*.idsig
+*.xz
+*.so
+!frida/libfba_bridge.config.so
+__pycache__/
+*.pyc

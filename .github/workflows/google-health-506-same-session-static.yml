@@ -1,0 +1,70 @@
+name: Google Health 5.06.1 same-session static checks
+
+on:
+  push:
+    paths:
+      - "research/google-health-506-same-session/**"
+      - ".github/workflows/google-health-506-same-session-static.yml"
+  pull_request:
+    paths:
+      - "research/google-health-506-same-session/**"
+      - ".github/workflows/google-health-506-same-session-static.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  static-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Python syntax and encoder tests
+        run: |
+          python -m py_compile research/google-health-506-same-session/tools/*.py
+          python research/google-health-506-same-session/tools/test_switchboard_record.py
+
+      - name: Frida probe JavaScript syntax
+        run: |
+          node --check research/google-health-506-same-session/frida/gh506_probe.js
+
+      - name: Compile wrapper against compile-only stubs
+        run: |
+          set -euxo pipefail
+          ROOT=research/google-health-506-same-session
+          mkdir -p /tmp/fba506-stubs /tmp/fba506-wrapper
+          javac -source 8 -target 8 -encoding UTF-8 \
+            -d /tmp/fba506-stubs \
+            "$ROOT/wrapper-stubs/android/app/Application.java" \
+            "$ROOT/wrapper-stubs/com/fitbit/FitbitRoot_Application.java"
+          javac -source 8 -target 8 -encoding UTF-8 \
+            -classpath /tmp/fba506-stubs \
+            -d /tmp/fba506-wrapper \
+            "$ROOT/wrapper-src/com/fitbit/FitbitHook_Application.java"
+          test -f /tmp/fba506-wrapper/com/fitbit/FitbitHook_Application.class
+
+      - name: Confirm no proprietary or private binary material is tracked
+        run: |
+          set -euxo pipefail
+          ROOT=research/google-health-506-same-session
+          if find "$ROOT" -type f \
+            \( -name '*.apk' -o -name '*.apkm' -o -name '*.jks' -o -name '*.keystore' \
+               -o -name '*.xz' -o \( -name '*.so' ! -name '*.config.so' \) \) \
+            | grep -q .; then
+            echo "Proprietary APK, Gadget binary, or signing material is tracked" >&2
+            exit 1
+          fi

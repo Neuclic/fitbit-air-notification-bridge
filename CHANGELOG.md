@@ -1,5 +1,29 @@
 # Changelog
 
+## Research follow-up - 2026-09-02
+
+- Re-check the two v10022 reopen conditions against Google Health 5.06.1
+  (`versionCode` 1104101009) and current public docs. No second DTLS session
+  and no additional `POST sb/records`.
+- Confirm `users.pairedDevices` is still `get`/`list` metadata only. The
+  legacy Fitbit Web API device alarm surface is not Air Switchboard and is
+  scheduled to shut down in September 2026.
+- Audit the 5.06.1 manifest: no exported component reaches
+  `GoldenGateCommandHandler` or Switchboard. `NotificationBroadcastReceiver`
+  exists but is `exported=false`. Deeplinks only open UI. There is no exported
+  ContentProvider and no `IGoldenGate` AIDL.
+- Record that v10022's `GET 4.05` then `POST 4.01` matches Golden Gate's
+  authenticated (`GROUP_0`) versus BOOTSTRAP (`GROUP_1`) CoAP filter. A
+  different record shape cannot authorize the write, and a successful
+  independent-session write would still leave error 3000.
+
+This follow-up does not change the APK. Independent-session 506 remains closed.
+
+- Add `research/google-health-506-same-session/`: Stage A re-sign control, Stage B
+  Gadget wrapper, and a Frida probe that reuses Google Health 5.06.1's live
+  `GoldenGateCommandHandler` for `/settings` and `sb/records`. Device sign-in,
+  sync, haptic, and Switchboard results are not yet recorded.
+
 ## 0.0.10022 - 2026-08-25
 
 - Record the v10021 device result: the BOOTSTRAP DTLS session completed, but

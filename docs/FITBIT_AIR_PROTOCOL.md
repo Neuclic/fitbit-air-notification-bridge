@@ -390,6 +390,67 @@ implementation experiment requires a documented ordinary-app API/IPC that
 reaches Google Health's existing authorized handler, or an official device
 command API. Neither is currently established.
 
+### 2026-09-02 follow-up: remaining 5.06.1 openings
+
+The freeze left two reopen conditions. Both were re-checked against the same
+5.06.1 artifact (`versionCode` 1104101009) and current public docs. This
+follow-up did not open a second Gattlink/DTLS session, did not repeat
+`POST sb/records`, and did not read key material.
+
+**Official command API.** The public Google Health `users.pairedDevices`
+resource is still `get`/`list` only under `googlehealth.settings.readonly`.
+Feature strings are output-only. The API has no device-command, notification,
+or DTLS-key method. The legacy Fitbit Web API device surface can manage
+alarms on some paired devices, not Air Switchboard records, and is scheduled
+to shut down in September 2026. Fitbit OS companion messaging is for watch
+apps, not Air firmware CoAP.
+
+**Ordinary-app IPC into the live Air handler.** A read-only dump of the 5.06.1
+`AndroidManifest.xml` found 185 components. Nothing exported is a Golden Gate
+command, Switchboard, haptic, or CoAP entry:
+
+| Candidate | Why it is not a Bridge transport |
+|---|---|
+| `AllAppNotificationListenerService` | System-bound DNCS observer. Google Health *receives* phone notifications; a third-party app cannot bind it. |
+| `NotificationBroadcastReceiver` plus `ACTION_NOTIFICATION_CAME` | The only in-app notification IPC found. It is `exported=false`, so another APK cannot send it. |
+| `CompanionService` | Requires `BIND_COMPANION_DEVICE_SERVICE`. The OS binds it, not a third-party app. |
+| `fitbit://` deeplinks (`tracker`, `device-management`, `deeplink-notification-click`, …) | Open Health UI. They do not submit a Switchboard record or reuse the DTLS session. |
+| `WearService`, Health Connect SDK bind, GPay MSE, navigation consumer | Unrelated surfaces. No exported ContentProvider exists. |
+| BitGatt `ScannedDevice` / ACL receivers | BLE scan/link bookkeeping, not a command API. |
+
+`GoldenGateCommandHandler`, `writeMobileData`, `CoapNotificationRecordCreator`,
+and `NotificationSenderCommandHandler` remain in-process. There is no
+`IGoldenGate` AIDL. `sendGenericCommand` still resolves to an unimplemented
+stub string in this build.
+
+**POST `4.01` vs GET `4.05`.** Golden Gate's CoAP group filter returns
+`4.01 Unauthorized` when a handler is outside the current identity group.
+`GROUP_0` is authenticated; `GROUP_1` is the non-authenticated/BOOTSTRAP
+side. The v10022 GET results reached the resources (`4.05` / accepted
+existence evidence) while the single POST returned `4.01`. That pattern is
+method-and-identity authorization on an existing path, not a missing
+protobuf field. Changing the record shape cannot promote a BOOTSTRAP
+session into the Mobile Data group.
+
+The phone-side stack only switches its *own* filter to `GROUP_0` when the
+peer PSK identity is not `BOOTSTRAP` or `hello`. Air's `GET 4.05` / `POST 4.01`
+split is consistent with the same identity mapping on the tracker, but the
+firmware table itself was not read. The Mobile Data PSK is still downloaded
+by Google Health's authenticated internal client and stored in its private
+BKS file.
+
+An independent Bridge session therefore still cannot both authorize
+`POST sb/records` and leave Google Health's session intact. Even a future
+BOOTSTRAP write success would not clear error 3000.
+
+The remaining implementation experiment is documented in
+`research/google-health-506-same-session/`. It re-signs this exact 5.06.1
+build, loads Frida Gadget only in the main Google Health process, and reuses
+the live `GoldenGateCommandHandler.sendGenericCommand(String, byte[], byte)`
+overload. That is not a stock third-party APK. Device results for Stage A
+control, Gadget load, `/settings` reuse, and same-session `POST sb/records`
+are not yet recorded.
+
 The result must be interpreted narrowly:
 
 | Device result | Supported conclusion |

@@ -79,8 +79,21 @@ Google Health 的 key，因此不在可接受边界内。
 
 独立会话 Switchboard 路线至此应作为产品方向关闭：它既不能获准创建通知，
 也不能保持 Google Health 同步。不要继续更换 payload 重试，也不要尝试提取或
-复用 Google Health 私有密钥。P0 只保留给普通 app 可调用的现有会话入口或官方
-设备命令 API。
+复用 Google Health 私有密钥。
+
+2026-09-02 的后续核对在没有再次写入设备的前提下，把冻结时留下的两个重开
+条件对着同一份 5.06.1 安装包关掉了。公开 paired-device 资源仍只有 `get`/`list`
+元数据。5.06.1 的 manifest 里没有可导出的 service、provider 或 receiver 能提交
+Switchboard 记录，或进入 `GoldenGateCommandHandler`。应用内唯一的通知广播是
+`exported=false`。Deeplink 只会打开界面。`GET 4.05` 之后的 `POST 4.01` 符合
+Golden Gate 把已认证会话和 BOOTSTRAP 分成不同 CoAP group 的做法，换 payload
+不能取得写入授权。
+
+普通无特权应用仍然没有进入 Google Health 现有 Air 会话的路径。因此实现上的
+后续是单独的、明确非产品的同进程实验，见
+`research/google-health-506-same-session/`：对这份精确 5.06.1 做研究签名，
+在进程内加载 Frida Gadget，复用现有 `GoldenGateCommandHandler`。它不是普通
+第三方 APK，也不解除产品冻结。
 
 ### 研究冻结决定——2026-08-25
 
