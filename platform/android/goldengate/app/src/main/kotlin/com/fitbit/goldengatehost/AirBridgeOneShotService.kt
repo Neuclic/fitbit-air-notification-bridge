@@ -6,14 +6,9 @@ import android.app.PendingIntent
 import android.app.Service
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
-import android.bluetooth.le.ScanCallback
-import android.bluetooth.le.ScanFilter
-import android.bluetooth.le.ScanResult
-import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
@@ -42,18 +37,19 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Owns the Air connection only for one queued notification task:
- * scan -> connect -> DTLS -> haptic pattern -> verify -> disconnect.
+ * saved device -> connect -> DTLS -> haptic pattern -> verify -> disconnect.
  */
 class AirBridgeOneShotService : Service() {
-    private val queue = ArrayDeque<AirNotificationTrigger>()
+    private data class Task(val trigger: AirNotificationTrigger, val address: String)
+    private val queue = ArrayDeque<Task>()
     private val disposables = CompositeDisposable()
-    private val mainHandler = Handler(Looper.getMainLooper())
     private var processing = false
     private var activePeer: StackPeer<CoapEndpoint>? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
+        AirBridgeRuntime.cancelShutdown()
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification("等待按需震动任务"))
     }
@@ -61,9 +57,10 @@ class AirBridgeOneShotService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val sourcePackage = intent?.getStringExtra(EXTRA_SOURCE_PACKAGE)
         val pattern = intent?.getStringExtra(EXTRA_PATTERN)?.let(AirHapticPattern::fromWireName)
-        if (sourcePackage != null && pattern != null) {
+        val address = intent?.getStringExtra(EXTRA_ADDRESS)
+        if (sourcePackage != null && pattern != null && address != null) {
             if (queue.size < MAX_QUEUE_SIZE) {
-                queue.addLast(AirNotificationTrigger(sourcePackage, pattern))
+                queue.addLast(Task(AirNotificationTrigger(sourcePackage, pattern), address))
             } else {
                 updateStatus("任务队列已满，忽略 $sourcePackage")
             }
@@ -78,13 +75,14 @@ class AirBridgeOneShotService : Service() {
         disposables.dispose()
         releasePeer()
         releaseWakeLock()
+        AirBridgeRuntime.scheduleShutdown()
         super.onDestroy()
     }
 
     private fun processNext() {
         if (processing) return
-        val trigger = queue.pollFirst()
-        if (trigger == null) {
+        val task = queue.pollFirst()
+        if (task == null) {
             releaseWakeLock()
             stopForeground(true)
             stopSelf()
@@ -92,9 +90,10 @@ class AirBridgeOneShotService : Service() {
         }
         acquireWakeLock()
         processing = true
+        val trigger = task.trigger
         updateStatus("准备连接 Air：${trigger.sourcePackage} / ${trigger.pattern.wireName}")
         disposables.add(
-            executeWithRetry(trigger, 0)
+            executeWithRetry(task, 0)
                 .subscribeOn(Schedulers.io())
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(
@@ -119,9 +118,9 @@ class AirBridgeOneShotService : Service() {
     }
 
     private fun executeWithRetry(
-        trigger: AirNotificationTrigger,
+        task: Task,
         attemptIndex: Int
-    ): Single<AirHapticExecutionResult> = executeOnce(trigger)
+    ): Single<AirHapticExecutionResult> = executeOnce(task)
         .onErrorResumeNext { throwable ->
             releasePeer()
             if (attemptIndex >= RETRY_DELAYS_MILLIS.size) {
@@ -133,17 +132,16 @@ class AirBridgeOneShotService : Service() {
                         "Google Health 可能正在同步"
                 )
                 Single.timer(delay, TimeUnit.MILLISECONDS)
-                    .flatMap { executeWithRetry(trigger, attemptIndex + 1) }
+                    .flatMap { executeWithRetry(task, attemptIndex + 1) }
             }
         }
 
-    private fun executeOnce(trigger: AirNotificationTrigger): Single<AirHapticExecutionResult> {
-        val address = AirBridgeDeviceSettings.loadAddress(this)
-            ?: return Single.error(IllegalStateException("尚未选择 Fitbit Air"))
+    private fun executeOnce(task: Task): Single<AirHapticExecutionResult> {
+        val trigger = task.trigger
         return Single.fromCallable {
             AirBridgeRuntime.ensureInitialized(this)
-            address
-        }.flatMap { scanForDevice(it) }
+            task.address
+        }.map { registerSavedDevice(it) }
             .flatMap { connection -> connectStack(connection.device.address) }
             .flatMap { endpoint ->
                 updateStatus("已建立 DTLS，正在执行 ${trigger.pattern.wireName}")
@@ -156,80 +154,23 @@ class AirBridgeOneShotService : Service() {
             .doOnError { releasePeer() }
     }
 
-    private fun scanForDevice(address: String): Single<GattConnection> = Single.create { emitter ->
+    private fun registerSavedDevice(address: String): GattConnection {
         val manager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         val adapter: BluetoothAdapter = manager.adapter
-            ?: run {
-                emitter.onError(IllegalStateException("Bluetooth adapter unavailable"))
-                return@create
-            }
-        if (!adapter.isEnabled) {
-            emitter.onError(IllegalStateException("Bluetooth is disabled"))
-            return@create
-        }
-        val scanner = adapter.bluetoothLeScanner
-            ?: run {
-                emitter.onError(IllegalStateException("BLE scanner unavailable"))
-                return@create
-            }
-        lateinit var callback: ScanCallback
-        val stopScan = {
-            mainHandler.removeCallbacksAndMessages(callback)
-            runCatching { scanner.stopScan(callback) }
-        }
-        callback = object : ScanCallback() {
-            override fun onScanResult(callbackType: Int, result: ScanResult) {
-                if (!result.device.address.equals(address, ignoreCase = true)) return
-                stopScan()
-                if (!emitter.isDisposed) {
-                    runCatching { registerScannedDevice(result) }
-                        .onSuccess(emitter::onSuccess)
-                        .onFailure(emitter::onError)
-                }
-            }
-
-            override fun onScanFailed(errorCode: Int) {
-                stopScan()
-                if (!emitter.isDisposed) emitter.onError(IllegalStateException("BLE scan failed: $errorCode"))
-            }
-        }
-        val timeout = Runnable {
-            stopScan()
-            if (!emitter.isDisposed) {
-                emitter.onError(IllegalStateException("Air not advertising (timeout)"))
-            }
-        }
-        emitter.setCancellable {
-            mainHandler.removeCallbacks(timeout)
-            stopScan()
-        }
-        try {
-            scanner.startScan(
-                listOf(ScanFilter.Builder().setDeviceAddress(address).build()),
-                ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(),
-                callback
-            )
-            mainHandler.postDelayed(timeout, SCAN_TIMEOUT_MILLIS)
-        } catch (throwable: Throwable) {
-            stopScan()
-            if (!emitter.isDisposed) emitter.onError(throwable)
-        }
-    }
-
-    private fun registerScannedDevice(result: ScanResult): GattConnection {
+            ?: throw IllegalStateException("Bluetooth adapter unavailable")
+        check(adapter.isEnabled) { "Bluetooth is disabled" }
         val fitbitGatt = FitbitGatt.getInstance()
-        fitbitGatt.addBackgroundScannedDeviceConnection(result)
         fitbitGatt.getMatchingConnectionsForDeviceNames(null)
-            .firstOrNull { it.device.address.equals(result.device.address, ignoreCase = true) }
+            .firstOrNull { it.device.address.equals(address, ignoreCase = true) }
             ?.let { return it }
-        val wrappedDevice = FitbitBluetoothDevice(result.device)
-        return GattConnection(wrappedDevice, Looper.getMainLooper()).also {
-            fitbitGatt.putConnectionIntoDevices(wrappedDevice, it)
+        val device = FitbitBluetoothDevice(adapter.getRemoteDevice(address))
+        return GattConnection(device, Looper.getMainLooper()).also {
+            fitbitGatt.putConnectionIntoDevices(device, it)
         }
     }
 
     private fun connectStack(address: String): Single<CoapEndpoint> {
-        updateStatus("已发现 Air，正在建立 Gattlink / DTLS")
+        updateStatus("正在连接已保存的 Air，建立 Gattlink / DTLS")
         DiagnosticTlsIdentityRecorder.clear()
         val stackConfig = DtlsSocketNetifGattlink(
             Inet4Address.getByName(DEFAULT_SERVER_ADDRESS) as Inet4Address,
@@ -263,7 +204,10 @@ class AirBridgeOneShotService : Service() {
 
     private fun updateStatus(status: String) {
         Timber.i("Air one-shot: %s", status)
-        AirBridgeDeviceSettings.saveLastStatus(this, status)
+        sendBroadcast(
+            Intent(this, AirBridgeStatusReceiver::class.java)
+                .putExtra(AirBridgeStatusReceiver.EXTRA_STATUS, status)
+        )
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(NOTIFICATION_ID, buildNotification(status))
     }
@@ -314,20 +258,21 @@ class AirBridgeOneShotService : Service() {
     companion object {
         private const val EXTRA_SOURCE_PACKAGE = "source_package"
         private const val EXTRA_PATTERN = "pattern"
+        private const val EXTRA_ADDRESS = "device_address"
         private const val CHANNEL_ID = "air_bridge_connection"
         private const val NOTIFICATION_ID = 14001
         private const val MAX_QUEUE_SIZE = 10
-        private const val SCAN_TIMEOUT_MILLIS = 7_000L
         private const val CONNECT_TIMEOUT_SECONDS = 18L
         private const val RELEASE_SETTLE_MILLIS = 700L
         private const val WAKE_LOCK_TIMEOUT_MILLIS = 120_000L
         private val RETRY_DELAYS_MILLIS = listOf(2_000L, 5_000L)
 
         fun enqueue(context: Context, trigger: AirNotificationTrigger): Boolean {
-            if (AirBridgeDeviceSettings.loadAddress(context) == null) return false
+            val address = AirBridgeDeviceSettings.loadAddress(context) ?: return false
             val intent = Intent(context, AirBridgeOneShotService::class.java)
                 .putExtra(EXTRA_SOURCE_PACKAGE, trigger.sourcePackage)
                 .putExtra(EXTRA_PATTERN, trigger.pattern.wireName)
+                .putExtra(EXTRA_ADDRESS, address)
             return runCatching {
                 ContextCompat.startForegroundService(context, intent)
                 true

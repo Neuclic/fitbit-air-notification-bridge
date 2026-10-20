@@ -50,11 +50,12 @@ internal class GlobalBluetoothGattInitializer(
     }
 
     /**
-     * Not expected to be called but call this method if for any reason we want to stop listening to
-     * bluetooth adapter state changes in relation ship with properly initializing GATT setup
+     * Stop pending GATT setup and adapter callbacks. Uses clear rather than dispose so that
+     * a later start can register services again.
      */
     fun stop() {
         disposeBag.clear()
+        fitbitGatt.unregisterGattEventListener(bluetoothStateListener)
     }
 
     private val bluetoothStateListener = object: BaseFitbitGattCallback() {

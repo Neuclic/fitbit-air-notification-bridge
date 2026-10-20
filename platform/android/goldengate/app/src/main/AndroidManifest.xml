@@ -56,9 +56,11 @@
         </service>
         <service
             android:name=".AirBridgeOneShotService"
+            android:process=":air_haptics"
             android:exported="false"
             android:foregroundServiceType="connectedDevice"
             android:stopWithTask="false" />
+        <receiver android:name=".AirBridgeStatusReceiver" android:exported="false" />
         <activity
                 android:name=".coap.BsdCoapActivity"
                 android:label="@string/title_activity_bsd_coap"
