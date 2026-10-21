@@ -56,9 +56,59 @@ command. All three attempts in the locked synthetic run were unavailable or
 timed out. This PR omits that unverified command. The observations do not prove
 that any one change alone caused the successful official sync.
 
+## Exact-artifact follow-up (2026-10-21)
+
+Installed commit `45505f181d11696a60f84de0970b54f6d411ab21` and verified the
+installed APK SHA-256 against the locally built artifact:
+`f261ce21f59cfaf50e2ddba59298a1ce83bf3054200b4bd6a573f6bc711c52db`.
+The app build and all eight app tests passed again.
+
+A temporary `com.android.shell=single` rule let local notifications exercise the
+unmodified notification listener. No diagnostic receiver or alternate worker
+was added. An initial attempt after force-stopping the app for test setup did
+not reach a bound listener; toggling the existing notification-listener grant
+restored the binding. This setup attempt is excluded from the timings below.
+
+| Exact-artifact test | Completion | No bridge GATT registrations |
+| --- | ---: | ---: |
+| Notification with Google Health in the foreground; one connection retry | 24.74 s | 26.12 s |
+| Notification with the phone locked | 7.16 s | 8.28 s |
+| Separate locked-phone notification, wearer confirmed vibration | 7.37 s | 8.52 s |
+
+All three tasks reported the original LOW setting restored. Times are sampled
+from notification posting, not the instant the motor first moved. The second
+and third tasks also exercise runtime reinitialization after idle shutdown.
+
+There is still a protocol-coexistence concern: the official app began logging
+`Received previously received PSN ... != Expected ...` seconds after the first
+bridge connection. These warnings continued after the bridge's registrations
+were gone. Local GATT cleanup therefore must not be equated with a healthy
+official Gattlink session. The exact-artifact haptic result is positive, but
+background automatic-sync coexistence has not yet passed validation.
+
+During a subsequent ten-minute observation, Google Health remained in the
+background. Three real WeChat notification tasks also completed successfully
+and restored LOW; after the queue drained, bridge registrations disappeared
+again. These real events add software-path evidence, but were not individually
+confirmed by the wearer. Lark and calls were not validated.
+
+The official transport warning count reached 191 by the end-of-window check,
+with repeated packet 8 while expecting packet 14. Reopening Google Health
+showed "syncing". About one minute later its client disconnected and
+reconnected, and the sequence warnings stopped. This recovery followed opening
+the official UI, so it is not evidence of unattended background sync. The
+screen then locked before a final sync timestamp could be verified. The
+original notification rules were restored after testing.
+
+Keep this change as a draft until a completed background sync can be shown
+after notification delivery. A ten-minute window without a confirmed sync
+does not establish that automatic sync can never recover, but the persistent
+protocol warnings are a reason not to claim that resource teardown alone
+solves coexistence.
+
 ## Remaining validation
 
-- Retest the exact PR artifact and repeat on other phones and firmware versions.
+- Repeat on other phones and firmware versions.
 - Check actual configured-app notifications and incoming calls with the phone
   locked. Ongoing call notification filtering is a separate issue.
 - Confirm unattended automatic sync over an extended period, including while
