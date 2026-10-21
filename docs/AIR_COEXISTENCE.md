@@ -97,8 +97,11 @@ with repeated packet 8 while expecting packet 14. Reopening Google Health
 showed "syncing". About one minute later its client disconnected and
 reconnected, and the sequence warnings stopped. This recovery followed opening
 the official UI, so it is not evidence of unattended background sync. The
-screen then locked before a final sync timestamp could be verified. The
-original notification rules were restored after testing.
+screen then locked before a final sync timestamp could be verified. After
+unlocking and opening Google Health again, the UI showed a sync time of
+"just now", confirming completed foreground recovery. This does not establish
+when a background sync completed. The original notification rules were
+restored after testing.
 
 Keep this change as a draft until a completed background sync can be shown
 after notification delivery. A ten-minute window without a confirmed sync
